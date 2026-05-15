@@ -137,7 +137,7 @@ async function compressImage(file){return new Promise(res=>{const img=new Image(
 const C={bg0:'#050a14',bg2:'#0d1829',bg3:'#111f35',border:'rgba(30,58,95,.6)',text:'#e2e8f0',muted:'#64748b',faint:'#1e3a5f',cyan:'#38bdf8',blue:'#1d4ed8',gold:'#fbbf24',silver:'#94a3b8',bronze:'#b45309',green:'#4ade80',red:'#f87171',orange:'#fb923c',purple:'#c084fc'};
 const S={card:{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:'12px 14px',marginBottom:8},lbl:{display:'block',fontSize:9,letterSpacing:3,color:C.cyan,marginBottom:8,fontWeight:700},input:{width:'100%',background:'rgba(255,255,255,.04)',border:`1px solid ${C.border}`,borderRadius:10,color:C.text,fontFamily:'inherit',fontSize:14,padding:'10px 12px',outline:'none'},btn:(a,col=C.blue)=>({background:a?`linear-gradient(135deg,${col},${col}99)`:'transparent',border:a?'none':`1px solid ${C.border}`,color:a?'#fff':C.muted,borderRadius:20,padding:'6px 14px',cursor:'pointer',fontFamily:'inherit',fontWeight:700,fontSize:12})};
 const sk=(p,r)=>`${p.replace(/\s+/g,'-').toLowerCase()}__${r.replace(/\s+/g,'-').toLowerCase()}`;
-const fk=s=>s.replace(/\s+/g,'-').toLowerCase();
+const fk=s=>s.replace(/\s+/g,'-').replace(/[.#$[\]]/g,'').toLowerCase();
 const MEDALS=['🥇','🥈','🥉'];
 const EMOJIS=['🔥','❤️','😂','😬','👎'];
 const SLOTS=['F1','F2','F3','D1','D2','G'];
