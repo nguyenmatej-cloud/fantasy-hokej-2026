@@ -215,137 +215,120 @@ function MatchDayStrip({selectedDate}){
 function Setup({existing,onJoin}){const [n,setN]=useState('');const [e,setE]=useState('');const go=()=>{const t=n.trim();if(!t){setE('Zadej přezdívku');return;}if(existing.includes(t)){setE('Tato přezdívka už existuje');return;}onJoin(t);};return(<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}><div style={{...S.card,maxWidth:360,width:'100%',textAlign:'center',padding:'32px 24px'}}><div style={{fontSize:48,marginBottom:12}}>🏒</div><div style={{fontSize:22,fontWeight:900,letterSpacing:2,marginBottom:4,background:'linear-gradient(135deg,#fff,#38bdf8)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>FANTASY MS HOKEJ</div><div style={{fontSize:11,color:C.muted,letterSpacing:3,marginBottom:24}}>2026 ŠVÝCARSKO</div><input value={n} onChange={e=>setN(e.target.value)} onKeyDown={e=>e.key==='Enter'&&go()} placeholder="Tvoje přezdívka…" style={{...S.input,textAlign:'center',fontSize:16,marginBottom:8}}/>{e&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>{e}</div>}<button onClick={go} style={{width:'100%',padding:'12px 0',border:'none',borderRadius:12,background:'linear-gradient(135deg,#1d4ed8,#0369a1)',color:'#fff',fontWeight:900,fontSize:16,fontFamily:'inherit',cursor:'pointer',letterSpacing:1}}>VSTOUPIT →</button>{existing.length>0&&<div style={{fontSize:11,color:C.muted,marginTop:16}}>Aktivní hráči: {existing.join(', ')}</div>}</div></div>);}
 
 /* ── SQUAD BUILDER ─────────────────────────────────── */
-function SquadBuilder({myName,rounds,squadBuilds,onSquadSave}){
+function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players}){
   const [selRound,setSelRound]=useState(rounds[rounds.length-1]||'');
   const [mySquad,setMySquad]=useState(emptySquad());
   const [pickSlot,setPickSlot]=useState(null);
   const [search,setSearch]=useState('');
   const [filterC,setFilterC]=useState('');
   const [viewPlayer,setViewPlayer]=useState(myName);
-  const [now,setNow]=useState(Date.now());
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
   const rk=selRound?fk(selRound):'';
-
-  useEffect(()=>{if(rounds.length)setSelRound(prev=>prev||rounds[rounds.length-1]);},[rounds]);
-  useEffect(()=>{if(rk&&squadBuilds[rk]&&squadBuilds[rk][fk(myName)]){setMySquad({...emptySquad(),...squadBuilds[rk][fk(myName)]});}else{setMySquad(emptySquad());}setViewPlayer(myName);},[rk,myName]);
-  useEffect(()=>{const i=setInterval(()=>setNow(Date.now()),60000);return()=>clearInterval(i);},[]);
-
-  // Get date for selected round (from MS schedule — find day where most games happen during tournament)
-  // For squad view, we show matches for the day when the round is active
-  // Use today's date for match strip
-  const todayISO=new Date().toISOString().slice(0,10);
-
-  const save=useCallback(async(sq)=>{if(!rk)return;await onSquadSave(rk,fk(myName),sq);},[rk,myName,onSquadSave]);
-  const setSlot=(slot,player)=>{const q={...mySquad,[slot]:player};if(q.captain&&q.captain===mySquad[slot]?.id)q.captain=null;setMySquad(q);save(q);setPickSlot(null);setSearch('');setFilterC('');};
-  const clearSlot=(slot)=>{const q={...mySquad,[slot]:null};if(q.captain&&q.captain===mySquad[slot]?.id)q.captain=null;setMySquad(q);save(q);};
-  const setCaptain=(id)=>{const q={...mySquad,captain:mySquad.captain===id?null:id};setMySquad(q);save(q);};
-  const usedIds=Object.values(mySquad).filter(v=>v&&typeof v==='object').map(v=>v.id);
-
-  // Players available for slot
-  const slotPos=pickSlot?SLOT_POS[pickSlot]:'';
+  useEffect(()=>{if(rounds.length&&!selRound)setSelRound(rounds[rounds.length-1]);},[rounds]);
+  useEffect(()=>{
+    if(rk&&squadBuilds[rk]&&squadBuilds[rk][fk(myName)]){setMySquad({...emptySquad(),...squadBuilds[rk][fk(myName)]});}
+    else{setMySquad(emptySquad());}
+    setViewPlayer(myName);setSaved(false);
+  },[rk,myName]);
+  const saveSquad=useCallback(async(sq)=>{
+    if(!rk){alert('Nejdřív vyber kolo!');return;}
+    setSaving(true);await onSquadSave(rk,fk(myName),sq);
+    setSaving(false);setSaved(true);setTimeout(()=>setSaved(false),3000);
+  },[rk,myName,onSquadSave]);
+  const setSlot=(slot,player)=>{const q={...mySquad,[slot]:player};if(q.captain&&mySquad[slot]&&q.captain===mySquad[slot].id)q.captain=null;setMySquad(q);setPickSlot(null);setSearch('');setFilterC('');setSaved(false);};
+  const clearSlot=(slot)=>{const q={...mySquad,[slot]:null};if(q.captain&&mySquad[slot]&&q.captain===mySquad[slot].id)q.captain=null;setMySquad(q);setSaved(false);};
+  const setCaptain=(id)=>{const q={...mySquad,captain:mySquad.captain===id?null:id};setMySquad(q);setSaved(false);};
+  const usedIds=Object.values(mySquad).filter(v=>v&&typeof v==="object").map(v=>v.id);
+  const slotPos=pickSlot?SLOT_POS[pickSlot]:"";
   const filteredPlayers=PDB.filter(([n,c,p])=>{
     if(p!==slotPos)return false;
     if(filterC&&c!==filterC)return false;
-    const id=`${c}_${n}`;
-    if(usedIds.includes(id))return false;
-    if(search&&!n.toLowerCase().includes(search.toLowerCase())&&!(COUNTRIES[c]?.n||'').toLowerCase().includes(search.toLowerCase()))return false;
+    if(usedIds.includes(c+"_"+n))return false;
+    if(search&&!n.toLowerCase().includes(search.toLowerCase())&&!(COUNTRIES[c]?.n||"").toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
-
-  // View mode: check reveal for each slot
-  const viewRk=rk;
-  const viewSquadData=viewPlayer&&viewRk&&squadBuilds[viewRk]?.[fk(viewPlayer)];
-  const viewSquad=viewPlayer===myName?mySquad:(viewSquadData?{...emptySquad(),...viewSquadData}:null);
-
   const isRevealed=(player)=>{if(!player)return false;if(viewPlayer===myName)return true;return matchStartedFor(player.country);};
-
-  const capitalName=(sq)=>{if(!sq?.captain)return null;const allSlots=[...SLOTS,...SUB_SLOTS];for(const s of allSlots){if(sq[s]&&sq[s].id===sq.captain)return sq[s].name;}return null;};
-
-  const otherPlayers=rounds.length>0?Object.keys(squadBuilds[rk]||{}).map(k=>k.replace(/-/g,' ')).filter(p=>p!==myName.toLowerCase().replace(/\s+/g,'-')):[];
-
-  // All people who have squads for this round
-  const participantsWithSquad=Object.keys(squadBuilds[rk]||{});
-  const allMembers=participantsWithSquad;
-
-  if(!rounds.length)return(<div style={{textAlign:'center',padding:60,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🏒</div>Přidej kola ve Správě</div>);
-
+  const viewSquadData=viewPlayer!==myName&&rk?squadBuilds[rk]?.[fk(viewPlayer)]:null;
+  const viewSquad=viewPlayer===myName?mySquad:(viewSquadData?{...emptySquad(),...viewSquadData}:null);
+  const capitalName=(sq)=>{if(!sq?.captain)return null;for(const s of[...SLOTS,...SUB_SLOTS]){if(sq[s]&&sq[s].id===sq.captain)return sq[s].name;}return null;};
+  const todayISO=new Date().toISOString().slice(0,10);
+  const allGroupMembers=players||[];
+  if(!rounds.length)return(<div style={{textAlign:"center",padding:60,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🏒</div>Přidej kola ve Správě</div>);
   return(
     <div>
-      {/* Round selector */}
       <div style={{marginBottom:12}}>
         <span style={S.lbl}>KOLO</span>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-          {rounds.map(r=><button key={r} onClick={()=>{setSelRound(r);setViewPlayer(myName);}} style={{padding:'6px 14px',borderRadius:20,cursor:'pointer',border:'none',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selRound===r)}}>{r}</button>)}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {rounds.map(r=><button key={r} onClick={()=>{setSelRound(r);setViewPlayer(myName);}} style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",border:"none",fontFamily:"inherit",fontSize:12,fontWeight:700,...S.btn(selRound===r)}}>{r}</button>)}
         </div>
       </div>
-
-      {/* Today's matches strip */}
-      <div style={{...S.card,marginBottom:12,padding:'10px 12px',border:'1px solid rgba(56,189,248,.15)'}}>
+      <div style={{...S.card,marginBottom:12,padding:"10px 12px",border:"1px solid rgba(56,189,248,.15)"}}>
         <span style={S.lbl}>ZÁPASY DNES</span>
         <MatchDayStrip selectedDate={todayISO}/>
       </div>
-
-      {/* View other squads toggle */}
-      {allMembers.length>0&&(
+      {allGroupMembers.length>1&&(
         <div style={{marginBottom:12}}>
           <span style={S.lbl}>ZOBRAZIT SESTAVU</span>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            <button onClick={()=>setViewPlayer(myName)} style={{...S.btn(viewPlayer===myName,'#1d4ed8'),padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700}}>👤 Moje</button>
-            {allMembers.filter(k=>k!==fk(myName)).map(k=>(
-              <button key={k} onClick={()=>setViewPlayer(k.replace(/-/g,' '))} style={{...S.btn(viewPlayer===k.replace(/-/g,' '),'#7c3aed'),padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700}}>{k.replace(/-/g,' ')}</button>
-            ))}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {allGroupMembers.map(p=>{
+              const hasSaved=rk&&squadBuilds[rk]?.[fk(p)];
+              const isMe=p===myName;
+              return(<button key={p} onClick={()=>setViewPlayer(p)} style={{display:"flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,
+                background:viewPlayer===p?(isMe?"linear-gradient(135deg,#1d4ed8,#0369a1)":"linear-gradient(135deg,#7c3aed,#4f46e5)"):"rgba(255,255,255,.06)",color:viewPlayer===p?"#fff":C.muted}}>
+                {isMe?"👤":hasSaved?"✅":"⏳"} {p}
+              </button>);
+            })}
           </div>
+          {viewPlayer!==myName&&!viewSquadData&&<div style={{fontSize:11,color:C.muted,marginTop:6,padding:"8px 10px",background:"rgba(255,255,255,.03)",borderRadius:8}}>{viewPlayer} ještě neuložil sestavu pro toto kolo</div>}
         </div>
       )}
-
-      {/* Rink */}
-      {viewPlayer&&<Rink squad={viewSquad||emptySquad()} isOwner={viewPlayer===myName} onSlotClick={viewPlayer===myName?setPickSlot:null} onClear={viewPlayer===myName?clearSlot:null} onCaptain={viewPlayer===myName?setCaptain:null} isRevealed={isRevealed}/>}
-
-      {/* Captain info */}
-      {viewPlayer===myName&&squadComplete(mySquad)&&(
-        <div style={{...S.card,border:'1px solid rgba(251,191,36,.2)',background:'rgba(251,191,36,.04)',marginTop:8}}>
-          <span style={S.lbl}>👑 KAPITÁN (1.5× body)</span>
-          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            {SLOTS.map(s=>{const pl=mySquad[s];if(!pl)return null;const isC=mySquad.captain===pl.id;return(
-              <button key={s} onClick={()=>setCaptain(pl.id)} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:800,background:isC?'linear-gradient(135deg,#b45309,#fbbf24)':'rgba(255,255,255,.06)',color:isC?'#fff':C.text}}>
-                {isC?'👑':''}{COUNTRIES[pl.country]?.f} {pl.name}
-              </button>
-            );})}
-          </div>
-          {mySquad.captain&&<div style={{fontSize:10,color:C.muted,marginTop:6}}>Kapitán: {capitalName(mySquad)} — body ×1.5</div>}
+      <Rink squad={viewSquad||emptySquad()} isOwner={viewPlayer===myName} onSlotClick={viewPlayer===myName?setPickSlot:null} onClear={viewPlayer===myName?clearSlot:null} onCaptain={viewPlayer===myName?setCaptain:null} isRevealed={isRevealed}/>
+      {viewPlayer===myName&&(
+        <div>
+          {squadComplete(mySquad)&&(
+            <div style={{...S.card,border:"1px solid rgba(251,191,36,.2)",background:"rgba(251,191,36,.04)",marginTop:8}}>
+              <span style={S.lbl}>👑 VYBER KAPITÁNA (1.5× body)</span>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {SLOTS.map(s=>{const pl=mySquad[s];if(!pl)return null;const isC=mySquad.captain===pl.id;return(
+                  <button key={s} onClick={()=>setCaptain(pl.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800,background:isC?"linear-gradient(135deg,#b45309,#fbbf24)":"rgba(255,255,255,.06)",color:isC?"#fff":C.text}}>
+                    {isC?"👑 ":""}{COUNTRIES[pl.country]?.f} {pl.name}
+                  </button>);})}
+              </div>
+              {mySquad.captain&&<div style={{fontSize:10,color:C.muted,marginTop:6}}>Kapitán: {capitalName(mySquad)}</div>}
+            </div>
+          )}
+          <button onClick={()=>saveSquad(mySquad)} disabled={saving} style={{width:"100%",marginTop:10,padding:"14px 0",border:"none",borderRadius:12,cursor:saving?"wait":"pointer",fontFamily:"inherit",fontSize:15,fontWeight:900,letterSpacing:1,
+            background:saved?"linear-gradient(135deg,#059669,#10b981)":"linear-gradient(135deg,#1d4ed8,#0369a1)",color:"#fff",boxShadow:saved?"0 4px 20px rgba(16,185,129,.4)":"0 4px 20px rgba(29,78,216,.3)"}}>
+            {saving?"Ukládám…":saved?"✅ SESTAVA ULOŽENA!":"💾 ULOŽIT SESTAVU"}
+          </button>
+          <div style={{fontSize:10,color:C.faint,textAlign:"center",marginTop:6}}>Uložit po každé změně · Ostatní uvidí hráče až když začne jejich zápas</div>
         </div>
       )}
-
-      {/* Player picker modal */}
       {pickSlot&&(
-        <div style={{position:'fixed',inset:0,zIndex:200,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget){setPickSlot(null);setSearch('');setFilterC('');}}}>
+        <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",flexDirection:"column"}} onClick={e=>{if(e.target===e.currentTarget){setPickSlot(null);setSearch("");setFilterC("");}}}>
           <div style={{flex:1}}/>
-          <div style={{background:C.bg2,borderTop:`1px solid ${C.border}`,borderRadius:'20px 20px 0 0',padding:'16px 12px',maxHeight:'75vh',display:'flex',flexDirection:'column',animation:'slideUp .25s ease'}}>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+          <div style={{background:C.bg2,borderTop:"1px solid "+C.border,borderRadius:"20px 20px 0 0",padding:"16px 12px",maxHeight:"75vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontWeight:900,fontSize:15}}>Vyber {SLOT_LABEL[pickSlot]}</div>
-              <button onClick={()=>{setPickSlot(null);setSearch('');setFilterC('');}} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:22,lineHeight:1}}>✕</button>
+              <button onClick={()=>{setPickSlot(null);setSearch("");setFilterC("");}} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:22,lineHeight:1}}>✕</button>
             </div>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Hledat hráče…" autoFocus style={{...S.input,marginBottom:8,fontSize:13}}/>
-            {/* Country filter */}
-            <div style={{display:'flex',gap:5,overflowX:'auto',marginBottom:10,paddingBottom:4}}>
-              <button onClick={()=>setFilterC('')} style={{flexShrink:0,padding:'4px 10px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,background:filterC===''?C.blue:'rgba(255,255,255,.06)',color:filterC===''?'#fff':C.muted,fontWeight:700}}>Vše</button>
-              {Object.entries(COUNTRIES).map(([code,{f,n}])=>(
-                <button key={code} onClick={()=>setFilterC(filterC===code?'':code)} style={{flexShrink:0,padding:'4px 10px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,background:filterC===code?C.blue:'rgba(255,255,255,.06)',color:filterC===code?'#fff':C.muted,fontWeight:700}}>{f} {n}</button>
+            <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:10,paddingBottom:4}}>
+              <button onClick={()=>setFilterC("")} style={{flexShrink:0,padding:"4px 10px",borderRadius:16,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,background:filterC===""?C.blue:"rgba(255,255,255,.06)",color:filterC===""?"#fff":C.muted,fontWeight:700}}>Vše</button>
+              {Object.entries(COUNTRIES).map(([code,{f}])=>(
+                <button key={code} onClick={()=>setFilterC(filterC===code?"":code)} style={{flexShrink:0,padding:"4px 8px",borderRadius:16,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,background:filterC===code?C.blue:"rgba(255,255,255,.06)"}}>{f}</button>
               ))}
             </div>
-            <div style={{overflowY:'auto',flex:1}}>
-              {filteredPlayers.length===0&&<div style={{textAlign:'center',padding:24,color:C.muted}}>Žádní hráči</div>}
+            <div style={{overflowY:"auto",flex:1}}>
+              {filteredPlayers.length===0&&<div style={{textAlign:"center",padding:24,color:C.muted}}>Žádní hráči</div>}
               {filteredPlayers.map(([name,country,pos])=>{
-                const id=`${country}_${name}`;
-                return(
-                  <div key={id} onClick={()=>setSlot(pickSlot,{id,name,country,pos})} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 8px',borderRadius:10,cursor:'pointer',borderBottom:`1px solid ${C.border}`,background:'transparent'}}>
-                    <span style={{fontSize:20}}>{COUNTRIES[country]?.f}</span>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:800,fontSize:14}}>{name}</div>
-                      <div style={{fontSize:10,color:C.muted}}>{COUNTRIES[country]?.n} · {pos==='B'?'Brankář':pos==='O'?'Obránce':'Útočník'}</div>
-                    </div>
-                    <div style={{fontSize:11,color:C.cyan,fontWeight:700}}>+</div>
-                  </div>
-                );
+                const id=country+"_"+name;
+                return(<div key={id} onClick={()=>setSlot(pickSlot,{id,name,country,pos})} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 8px",borderRadius:10,cursor:"pointer",borderBottom:"1px solid "+C.border}}>
+                  <span style={{fontSize:20}}>{COUNTRIES[country]?.f}</span>
+                  <div style={{flex:1}}><div style={{fontWeight:800,fontSize:14}}>{name}</div><div style={{fontSize:10,color:C.muted}}>{COUNTRIES[country]?.n} · {pos==="B"?"Brankář":pos==="O"?"Obránce":"Útočník"}</div></div>
+                  <div style={{fontSize:11,color:C.cyan,fontWeight:700}}>+</div>
+                </div>);
               })}
             </div>
           </div>
@@ -354,8 +337,6 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave}){
     </div>
   );
 }
-
-/* ── RINK COMPONENT ─────────────────────────────────── */
 function Rink({squad,isOwner,onSlotClick,onClear,onCaptain,isRevealed}){
   return(
     <div>
@@ -630,29 +611,160 @@ function Grafy({players,rounds,scores}){
 }
 
 /* ── STATISTICS (formerly Soupisky) ─────────────────── */
-function Statistics({players,squads,onSquads,myName,toast}){
-  const [text,setText]=useState('');const [uploading,setUploading]=useState(false);const [imgPrev,setImgPrev]=useState(null);const fileRef=useRef();
-  const mySquad=squads[fk(myName)]||{};
-  async function handleFile(e){const f=e.target.files?.[0];if(!f)return;setUploading(true);try{const compressed=await compressImage(f);setImgPrev(compressed);const sq={...squads,[fk(myName)]:{img:compressed,savedAt:Date.now()}};onSquads(sq,'Nahrál soupisku (foto)');toast('✓ Soupiska uložena');}catch(ex){toast('Chyba: '+ex.message);}finally{setUploading(false);if(fileRef.current)fileRef.current.value='';}}
+/* ── STATISTICS ─────────────────────────────────────── */
+// playerStats stored at /player_stats/{roundKey}/{playerIdSafe}: {goals, assists}
+// playerIdSafe = country_name with spaces->underscores, special chars removed
+function pidSafe(id){return id.replace(/[^a-zA-Z0-9_ÁáČčĎďÉéĚěÍíŇňÓóŘřŠšŤťÚúŮůÝýŽžÄäÖöÜüÀàÂâ]/g,'_').replace(/__+/g,'_');}
+
+function Statistics({players,rounds,squadBuilds,playerStats,onPlayerStats,myName,isAdmin}){
+  const [selUser,setSelUser]=useState(myName);
+  const [sortBy,setSortBy]=useState('points'); // points|goals|assists|rounds
+  const [editRound,setEditRound]=useState(null); // round being edited for stats
+  const [editPlayer,setEditPlayer]=useState(null);
+  const [editGoals,setEditGoals]=useState('');
+  const [editAssists,setEditAssists]=useState('');
+
+  // Build player stats for selected user across all rounds
+  const userPlayerMap={};
+  rounds.forEach(r=>{
+    const rk=fk(r);
+    const squad=squadBuilds[rk]?.[fk(selUser)];
+    if(!squad)return;
+    const allSlots=[...SLOTS,...SUB_SLOTS];
+    allSlots.forEach(slot=>{
+      const pl=squad[slot];
+      if(!pl||typeof pl!=="object")return;
+      const pid=pl.id||pl.country+"_"+pl.name;
+      const safe=pidSafe(pid);
+      if(!userPlayerMap[pid]){userPlayerMap[pid]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0};}
+      userPlayerMap[pid].rounds++;
+      const pStats=playerStats[rk]?.[safe];
+      if(pStats){
+        userPlayerMap[pid].goals+=(pStats.goals||0);
+        userPlayerMap[pid].assists+=(pStats.assists||0);
+        userPlayerMap[pid].points+=(pStats.goals||0)+(pStats.assists||0);
+      }
+    });
+  });
+
+  let sortedPlayers=Object.values(userPlayerMap);
+  if(sortBy==="points")sortedPlayers.sort((a,b)=>b.points-a.points||b.rounds-a.rounds);
+  else if(sortBy==="goals")sortedPlayers.sort((a,b)=>b.goals-a.goals||b.points-a.points);
+  else if(sortBy==="assists")sortedPlayers.sort((a,b)=>b.assists-a.assists||b.points-a.points);
+  else if(sortBy==="rounds")sortedPlayers.sort((a,b)=>b.rounds-a.rounds||b.points-a.points);
+
+  const saveStats=()=>{
+    if(!editRound||!editPlayer)return;
+    const rk=fk(editRound);
+    const safe=pidSafe(editPlayer);
+    const g=parseInt(editGoals)||0;const a=parseInt(editAssists)||0;
+    const cur=playerStats[rk]||{};
+    onPlayerStats({...playerStats,[rk]:{...cur,[safe]:{goals:g,assists:a}}});
+    setEditPlayer(null);setEditGoals('');setEditAssists('');
+  };
+
+  const pos_label={B:"B",O:"O","Ú":"Ú"};
+  const SORT_OPTIONS=[["points","Kanadské body"],["goals","Góly"],["assists","Asistence"],["rounds","Počet kol"]];
+
   return(
     <div>
-      <div style={{...S.card,marginBottom:12}}>
-        <span style={S.lbl}>MÉ STATISTIKY & SOUPISKA</span>
-        <label style={{display:'block',border:`2px dashed ${C.border}`,borderRadius:12,padding:'16px',textAlign:'center',cursor:'pointer',background:'rgba(255,255,255,.02)'}}>
-          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:'none'}}/>
-          {uploading?<Spinner/>:mySquad.img?<div><img src={imgPrev||mySquad.img} alt="soupiska" style={{width:'100%',borderRadius:10,marginBottom:8}}/><div style={{fontSize:11,color:C.muted}}>📸 Klepni pro aktualizaci</div></div>:<div><div style={{fontSize:32,marginBottom:6}}>📸</div><div style={{fontSize:13,color:C.muted}}>Nahraj screenshot soupisky z Tipsportu</div></div>}
-        </label>
+      {/* User selector */}
+      <div style={{marginBottom:12}}>
+        <span style={S.lbl}>HRÁČ SKUPINKY</span>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {players.map(p=>(
+            <button key={p} onClick={()=>setSelUser(p)} style={{padding:"7px 14px",borderRadius:20,cursor:"pointer",border:"none",fontFamily:"inherit",fontSize:12,fontWeight:700,...S.btn(selUser===p)}}>
+              {p===myName?"👤 ":""}{p}
+            </button>
+          ))}
+        </div>
       </div>
-      {Object.entries(squads).filter(([k])=>k!==fk(myName)).map(([k,sq])=>(sq?.img?
-        <div key={k} style={{...S.card,marginBottom:12,padding:0,overflow:'hidden'}}>
-          <div style={{padding:'10px 14px',background:'rgba(255,255,255,.04)',borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:800,fontSize:14}}>{k.replace(/-/g,' ')}</div></div>
-          <img src={sq.img} alt={k} style={{width:'100%',display:'block'}}/>
-        </div>:null))}
+
+      {/* Sort */}
+      <div style={{marginBottom:12}}>
+        <span style={S.lbl}>SEŘADIT PODLE</span>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {SORT_OPTIONS.map(([k,l])=>(
+            <button key={k} onClick={()=>setSortBy(k)} style={{padding:"6px 12px",borderRadius:20,cursor:"pointer",border:"none",fontFamily:"inherit",fontSize:11,fontWeight:700,...S.btn(sortBy===k)}}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Player stats table */}
+      {sortedPlayers.length===0?(
+        <div style={{textAlign:"center",padding:40,color:C.muted}}>
+          <div style={{fontSize:32,marginBottom:8}}>📊</div>
+          {selUser} nemá žádnou sestavu v žádném kole
+        </div>
+      ):(
+        <div style={{...S.card,padding:0,overflow:"hidden"}}>
+          {/* Header */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 30px 45px 35px 35px 45px",gap:4,padding:"8px 10px",background:"rgba(255,255,255,.05)",borderBottom:"1px solid "+C.border}}>
+            <div style={{fontSize:9,color:C.cyan,fontWeight:700,letterSpacing:1}}>HRÁČ</div>
+            <div style={{fontSize:9,color:C.muted,fontWeight:700,textAlign:"center"}}>P</div>
+            <div style={{fontSize:9,color:C.gold,fontWeight:700,textAlign:"center",cursor:"pointer"}} onClick={()=>setSortBy("rounds")}>KOLA{sortBy==="rounds"?" ↓":""}</div>
+            <div style={{fontSize:9,color:"#4ade80",fontWeight:700,textAlign:"center",cursor:"pointer"}} onClick={()=>setSortBy("goals")}>G{sortBy==="goals"?" ↓":""}</div>
+            <div style={{fontSize:9,color:"#38bdf8",fontWeight:700,textAlign:"center",cursor:"pointer"}} onClick={()=>setSortBy("assists")}>A{sortBy==="assists"?" ↓":""}</div>
+            <div style={{fontSize:9,color:"#fbbf24",fontWeight:700,textAlign:"center",cursor:"pointer"}} onClick={()=>setSortBy("points")}>B{sortBy==="points"?" ↓":""}</div>
+          </div>
+          {sortedPlayers.map((pl,i)=>(
+            <div key={pl.name+pl.country} style={{display:"grid",gridTemplateColumns:"1fr 30px 45px 35px 35px 45px",gap:4,padding:"9px 10px",borderBottom:"1px solid "+C.border,background:i%2===0?"transparent":"rgba(255,255,255,.02)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:14}}>{COUNTRIES[pl.country]?.f||""}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,lineHeight:1.2}}>{pl.name}</div>
+                  <div style={{fontSize:9,color:C.muted}}>{COUNTRIES[pl.country]?.n||pl.country}</div>
+                </div>
+              </div>
+              <div style={{textAlign:"center",fontSize:11,color:C.muted,alignSelf:"center"}}>{pl.pos}</div>
+              <div style={{textAlign:"center",fontSize:14,fontWeight:700,color:C.gold,alignSelf:"center"}}>{pl.rounds}</div>
+              <div style={{textAlign:"center",fontSize:14,fontWeight:800,color:"#4ade80",alignSelf:"center"}}>{pl.goals}</div>
+              <div style={{textAlign:"center",fontSize:14,fontWeight:800,color:"#38bdf8",alignSelf:"center"}}>{pl.assists}</div>
+              <div style={{textAlign:"center",fontSize:16,fontWeight:900,color:pl.points>0?C.gold:C.muted,alignSelf:"center"}}>{pl.points}</div>
+            </div>
+          ))}
+          <div style={{padding:"8px 10px",display:"flex",gap:16,fontSize:9,color:C.muted}}>
+            <span>P = pozice</span><span style={{color:C.gold}}>KOLA = kolkrát v sestavě</span><span style={{color:"#4ade80"}}>G = góly</span><span style={{color:"#38bdf8"}}>A = asistence</span><span style={{color:C.gold}}>B = kanadské body</span>
+          </div>
+        </div>
+      )}
+
+      {/* Admin stats entry */}
+      {isAdmin&&(
+        <div style={{...S.card,marginTop:12,border:"1px solid rgba(56,189,248,.2)"}}>
+          <span style={S.lbl}>⚙️ ADMIN — ZADAT STATISTIKY HRÁČE</span>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Kolo</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {rounds.map(r=><button key={r} onClick={()=>setEditRound(r)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,...S.btn(editRound===r)}}>{r}</button>)}
+            </div>
+          </div>
+          {editRound&&(
+            <div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Hráč (ID: country_jmeno)</div>
+              <input value={editPlayer||""} onChange={e=>setEditPlayer(e.target.value)} placeholder="např. CZE_Červenka R." style={{...S.input,marginBottom:8,fontSize:12}}/>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Góly</div>
+                  <input type="number" value={editGoals} onChange={e=>setEditGoals(e.target.value)} style={{...S.input,fontSize:14,textAlign:"center"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Asistence</div>
+                  <input type="number" value={editAssists} onChange={e=>setEditAssists(e.target.value)} style={{...S.input,fontSize:14,textAlign:"center"}}/>
+                </div>
+              </div>
+              <button onClick={saveStats} style={{width:"100%",padding:10,background:"linear-gradient(135deg,#1d4ed8,#0369a1)",border:"none",borderRadius:10,color:"#fff",fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
+                Uložit statistiku
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
-
-/* ── HISTORY ────────────────────────────────────────── */
 function History({activity}){
   const icons={score:{ic:'📊',col:C.cyan},player:{ic:'👤',col:C.green},round:{ic:'🏒',col:C.orange},squad:{ic:'📸',col:C.purple},delete:{ic:'🗑',col:C.red},join:{ic:'🆕',col:C.gold},dispute:{ic:'⚠️',col:C.orange},resolve:{ic:'✅',col:C.green},squadbuild:{ic:'🏒',col:'#a78bfa'},publish:{ic:'🔓',col:'#7c3aed'}};
   const items=Object.values(activity).sort((a,b)=>b.time-a.time);
@@ -717,6 +829,7 @@ function App(){
   const [players,setPlayers]=useState([]);const [rounds,setRounds]=useState([]);
   const [scores,setScores]=useState({});const [squads,setSquads]=useState({});
   const [squadBuilds,setSquadBuilds]=useState({});
+  const [playerStats,setPlayerStats]=useState({});
   const [activity,setActivity]=useState({});const [reactions,setReactions]=useState({});
   const [comments,setComments]=useState({});const [settings,setSettingsState]=useState({});
   const [disputes,setDisputes]=useState({});
@@ -727,7 +840,7 @@ function App(){
 
   useEffect(()=>{
     if(!db){setFbOk(false);setReady(true);return;}
-    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,sb:false};
+    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,sb:false,ps:false};
     const check=()=>{if(Object.values(done).every(Boolean))setReady(true);};
     const refs=[
       [db.ref('config'),s=>{const d=s.val()||{};setPlayers(d.players||[]);setRounds(d.rounds||[]);done.cfg=true;check();},()=>{setFbOk(false);done.cfg=true;check();}],
@@ -739,6 +852,7 @@ function App(){
       [db.ref('settings'),s=>{setSettingsState(s.val()||{});done.st=true;check();},()=>{done.st=true;check();}],
       [db.ref('disputes'),s=>{setDisputes(s.val()||{});done.dp=true;check();},()=>{done.dp=true;check();}],
       [db.ref('squad_builds'),s=>{setSquadBuilds(s.val()||{});done.sb=true;check();},()=>{done.sb=true;check();}],
+      [db.ref('player_stats'),s=>{setPlayerStats(s.val()||{});done.ps=true;check();},()=>{done.ps=true;check();}],
     ];
     refs.forEach(([ref,cb,err])=>ref.on('value',cb,err));
     return()=>refs.forEach(([ref])=>ref.off());
@@ -756,6 +870,7 @@ function App(){
   const handleComment=useCallback((roundKey,playerKey,text)=>{const path=`comments/${roundKey}/${playerKey}`;if(!text)db?.ref(path).remove();else db?.ref(path).set(text);},[]);
   const handleDispute=useCallback((scoreKey,comment,who)=>{db?.ref(`disputes/${scoreKey}`).push({who,comment,time:Date.now(),resolved:false});logActivity(who,'dispute','nahlásil podezřelé skóre',`${scoreKey.replace(/__/g,' · ').replace(/-/g,' ')} — "${comment}"`)},[logActivity]);
   const handleResolveDispute=useCallback((scoreKey,disputeId,who)=>{db?.ref(`disputes/${scoreKey}/${disputeId}`).update({resolved:true,resolvedBy:who,resolvedAt:Date.now()});logActivity(who,'resolve','označil spor jako vyřešený',scoreKey.replace(/__/g,' · ').replace(/-/g,' '));},[logActivity]);
+  const handlePlayerStats=useCallback((stats)=>{db?.ref('player_stats').set(stats);},[]);
   const handleSquadSave=useCallback(async(roundKey,playerKey,squad)=>{await db?.ref(`squad_builds/${roundKey}/${playerKey}`).set({...squad,savedAt:Date.now()});logActivity(myName,'squadbuild','aktualizoval sestavu',`Kolo: ${roundKey.replace(/-/g,' ')}`);},[myName,logActivity]);
   const handleJoin=useCallback(name=>{localStorage.setItem('hk26_myname',name);setMyName(name);setPlayers(prev=>{if(prev.includes(name))return prev;const upd=[...prev,name];saveConfig(upd,rounds);logActivity(name,'join','se připojil do skupinky','👋 Nový člen');return upd;});},[rounds,saveConfig,logActivity]);
 
@@ -782,8 +897,8 @@ function App(){
       <div style={{maxWidth:860,margin:'0 auto',padding:'12px 12px 0',position:'relative',zIndex:1}}>
         {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
         {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
-        {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave}/>}
-        {tab==='stats'&&<Statistics players={players} squads={squads} onSquads={(sq,d)=>handleSquads(sq,myName,d)} myName={myName} toast={toast}/>}
+        {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave} players={players}/>}
+        {tab==='stats'&&<Statistics players={players} rounds={rounds} squadBuilds={squadBuilds} playerStats={playerStats} onPlayerStats={handlePlayerStats} myName={myName} isAdmin={ADMINS.includes(myName)}/>}
         {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
         {tab==='history'&&<History activity={activity}/>}
         {tab==='manage'&&<Manage players={players} rounds={rounds} squads={squads} myName={myName} toast={toast} settings={settings} onSettings={handleSettings} onPlayers={(p,a,d)=>handlePlayers(p,myName,a,d)} onRounds={(r,a,d)=>handleRounds(r,myName,a,d)} onScoreDel={k=>handleScoreDel(k,myName)} onSquads={(sq,d)=>handleSquads(sq,myName,d)}/>}
