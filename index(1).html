@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <meta name="theme-color" content="#050a14"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <title>🏒 Fantasy MS Hokej 2026</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#050a14;color:#e2e8f0;font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+    #root{min-height:100vh}
+    ::-webkit-scrollbar{width:3px;height:3px}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+    input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+    input[type=number]{-moz-appearance:textfield}
+    input::placeholder,textarea::placeholder{color:#1e3a5f}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes pulse{0%,100%{opacity:.7}50%{opacity:1}}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}
+  </style>
+</head>
+<body>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:#050a14">
+    <div style="font-size:40px">🏒</div>
+    <div style="font-size:11px;letter-spacing:5px;color:#334155;font-family:sans-serif">NAČÍTÁM…</div>
+  </div>
+</div>
+<script type="text/babel">
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBHGFktLJRfdATysVbMPKM-KuKXqp9sLjU",
+  authDomain:        "fantasy-ms-hokej-2026.firebaseapp.com",
+  databaseURL:       "https://fantasy-ms-hokej-2026-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "fantasy-ms-hokej-2026",
+  storageBucket:     "fantasy-ms-hokej-2026.firebasestorage.app",
+  messagingSenderId: "1043999174905",
+  appId:             "1:1043999174905:web:e4f96b816fbde98777f228",
+};
+
+const { useState, useEffect, useRef, useCallback } = React;
+let db = null;
+try { firebase.initializeApp(FIREBASE_CONFIG); db = firebase.database(); } catch(e) {}
+
+const fk  = s => String(s).replace(/[.#$[\]/]/g, '-');
+const sk  = (p, r) => `${fk(p)}__${fk(r)}`;
+const b64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
+
+async function aiParse(base64, apiKey) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+      { type: 'text', text: `Analyzuj Tipsport Fantasy hokej screenshot. Vrať POUZE čistý JSON bez backtick:
+{"totalPoints":0,"players":[{"name":"Příjmení J.","pos":"Ú","goals":0,"assists":0,"pts":0,"fp":0,"captain":false}]}
+Pozice: B=brankář O=obránce Ú=útočník. Chybějící=0.` }
+    ]}] })
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message);
+  return JSON.parse(d.content?.map(b => b.text || '').join('').replace(/```json|```/g, '').trim());
+}
+
+const C = {
+  bg0:'#050a14', bg1:'#0b1220', bg2:'#101929', bg3:'#162035',
+  border:'rgba(255,255,255,.07)',
+  text:'#e2e8f0', muted:'#64748b', faint:'#1e293b',
+  blue:'#3b82f6', blueD:'#1d4ed8', cyan:'#38bdf8',
+  gold:'#fbbf24', silver:'#94a3b8', bronze:'#a78452',
+  green:'#4ade80', red:'#f87171', orange:'#fb923c', purple:'#c084fc',
+};
+const POS = {
+  B: { label:'Brankář', color:'#fbbf24', bg:'rgba(251,191,36,.15)' },
+  O: { label:'Obránce', color:'#38bdf8', bg:'rgba(56,189,248,.15)' },
+  Ú: { label:'Útočník', color:'#4ade80', bg:'rgba(74,222,128,.15)' },
+};
+const MEDALS = ['🥇','🥈','🥉'];
+const EMOJIS = ['🔥','❤️','😂','😬','👎'];
+const S = {
+  card: { background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, padding:'14px 16px' },
+  input: { background:C.bg3, border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 13px', color:C.text, fontFamily:'inherit', fontSize:14, outline:'none', width:'100%', display:'block' },
+  lbl: { fontSize:10, letterSpacing:3, color:C.cyan, marginBottom:8, display:'block', fontWeight:700 },
+  btn: (on, col=C.blueD) => ({ border:'none', borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontWeight:700, fontSize:13, padding:'9px 16px', background: on ? `linear-gradient(135deg,${col},${col}cc)` : C.bg3, color: on ? '#fff' : C.muted, boxShadow: on ? `0 2px 12px ${col}55` : 'none' }),
+};
+
+function Spinner({ sz=22 }) { return <div style={{ width:sz, height:sz, border:'2px solid rgba(255,255,255,.07)', borderTop:`2px solid ${C.cyan}`, borderRadius:'50%', animation:'spin .8s linear infinite', flexShrink:0 }}/>; }
+function Toast({ msg, done }) { useEffect(() => { const t = setTimeout(done, 2600); return () => clearTimeout(t); }, []); return <div style={{ position:'fixed', bottom:82, left:'50%', transform:'translateX(-50%)', zIndex:999, background:'linear-gradient(135deg,#064e3b,#065f46)', color:'#6ee7b7', padding:'10px 22px', borderRadius:24, fontSize:13, fontWeight:700, boxShadow:'0 4px 24px rgba(0,0,0,.6)', whiteSpace:'nowrap', border:'1px solid rgba(110,231,183,.2)' }}>{msg}</div>; }
+function Chip({ pos }) { const p = POS[pos] || POS['Ú']; return <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:'50%', background:p.bg, color:p.color, fontSize:10, fontWeight:900, border:`1px solid ${p.color}44`, flexShrink:0 }}>{pos}</span>; }
+
+function Countdown({ nextMatch }) {
+  const [t, setT] = useState('');
+  useEffect(() => {
+    const calc = () => {
+      const diff = new Date(nextMatch) - new Date();
+      if (diff <= 0) { setT('🏒 TEĎKA!'); return; }
+      const d = Math.floor(diff/86400000), h = Math.floor((diff%86400000)/3600000), m = Math.floor((diff%3600000)/60000), s = Math.floor((diff%60000)/1000);
+      setT(d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`);
+    };
+    calc(); const i = setInterval(calc, 1000); return () => clearInterval(i);
+  }, [nextMatch]);
+  return <span style={{ fontWeight:900, color:C.cyan, fontSize:13, animation:'blink 2s ease infinite' }}>{t}</span>;
+}
+
+// ── SETUP ────────────────────────────────────────────────────
+function Setup({ existing, onJoin }) {
+  const [val, setVal] = useState(''); const [err, setErr] = useState('');
+  const go = () => { const n = val.trim(); if (!n) { setErr('Zadej přezdívku'); return; } if (n.length > 24) { setErr('Max 24 znaků'); return; } onJoin(n); };
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'24px 16px' }}>
+      <div style={{ fontSize:10, letterSpacing:5, color:C.cyan, marginBottom:8, animation:'pulse 2s ease infinite' }}>🏒 TIPSPORT FANTASY</div>
+      <h1 style={{ fontSize:'clamp(34px,9vw,54px)', fontWeight:900, letterSpacing:2, margin:'0 0 4px', textAlign:'center', lineHeight:.92, background:'linear-gradient(135deg,#fff 30%,#38bdf8)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>MS HOKEJ<br/>2026</h1>
+      <p style={{ fontSize:11, color:C.muted, letterSpacing:3, marginBottom:36 }}>SKUPINOVÝ TRACKER</p>
+      <div style={{ width:'100%', maxWidth:360 }}>
+        <div style={{ ...S.card, marginBottom:12, border:'1px solid rgba(56,189,248,.2)', background:'rgba(29,78,216,.08)' }}>
+          <span style={S.lbl}>ZADEJ SVOJI PŘEZDÍVKU</span>
+          <input autoFocus value={val} onChange={e => { setVal(e.target.value); setErr(''); }} onKeyDown={e => e.key === 'Enter' && go()} placeholder="např. Tomáš, Kouba…" maxLength={24} style={{ ...S.input, fontSize:18, fontWeight:700, marginBottom:10, textAlign:'center' }}/>
+          {err && <p style={{ fontSize:12, color:C.red, marginBottom:8, textAlign:'center' }}>{err}</p>}
+          <button onClick={go} style={{ width:'100%', padding:14, border:'none', borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontSize:16, fontWeight:900, letterSpacing:2, background:'linear-gradient(135deg,#1d4ed8,#0369a1)', color:'#fff', boxShadow:'0 4px 20px rgba(29,78,216,.45)' }}>VSTOUPIT 🏒</button>
+        </div>
+        {existing.length > 0 && (
+          <div style={S.card}>
+            <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:10 }}>UŽ V APLIKACI ({existing.length})</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>{existing.map(p => <button key={p} onClick={() => { setVal(p); setErr(''); }} style={{ padding:'5px 12px', borderRadius:20, border:`1px solid ${C.border}`, background:C.bg3, color:C.text, fontFamily:'inherit', fontSize:12, fontWeight:600, cursor:'pointer' }}>{p}</button>)}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── LEADERBOARD ──────────────────────────────────────────────
+function Leaderboard({ players, rounds, scores, settings }) {
+  const rows = players.map(p => ({ name:p, total:rounds.reduce((s,r) => s + (scores[sk(p,r)] ?? 0), 0) })).sort((a,b) => b.total - a.total);
+  const max = Math.max(...rows.map(r => r.total), 1);
+  const last = rows.length - 1;
+  const topCol = [C.gold, C.silver, C.bronze];
+  const lastRound = rounds[rounds.length-1];
+  const playerKola = lastRound ? players.map(p => ({ name:p, pts:scores[sk(p,lastRound)] ?? 0 })).sort((a,b) => b.pts-a.pts)[0] : null;
+  let bigJump = null;
+  if (rounds.length >= 2) {
+    const prev = rounds[rounds.length-2], cur = rounds[rounds.length-1];
+    const jumps = players.map(p => ({ name:p, jump:(scores[sk(p,cur)]??0)-(scores[sk(p,prev)]??0) })).sort((a,b) => b.jump-a.jump);
+    if (jumps[0]?.jump > 0) bigJump = jumps[0];
+  }
+  if (!rows.length) return <p style={{ textAlign:'center', padding:60, color:C.muted }}>Zatím nikdo — každý si přijde a zadá přezdívku</p>;
+  return (
+    <div>
+      {settings?.nextMatch && (
+        <div style={{ ...S.card, marginBottom:12, background:'rgba(29,78,216,.1)', border:'1px solid rgba(56,189,248,.25)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div><div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:2 }}>PŘÍŠTÍ ZÁPAS/KOLO</div><Countdown nextMatch={settings.nextMatch}/></div>
+          <div style={{ fontSize:28 }}>⏱️</div>
+        </div>
+      )}
+      {(playerKola?.pts > 0 || bigJump) && (
+        <div style={{ display:'grid', gridTemplateColumns: playerKola?.pts>0 && bigJump ? '1fr 1fr' : '1fr', gap:8, marginBottom:12 }}>
+          {playerKola?.pts > 0 && (
+            <div style={{ ...S.card, padding:'10px 14px', border:'1px solid rgba(251,191,36,.25)', background:'rgba(251,191,36,.06)' }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:C.gold, marginBottom:3 }}>🌟 HRÁČ KOLA</div>
+              <div style={{ fontWeight:800, fontSize:15 }}>{playerKola.name}</div>
+              <div style={{ fontSize:12, color:C.muted }}>{lastRound} · <span style={{ color:C.gold, fontWeight:900 }}>{playerKola.pts} b</span></div>
+            </div>
+          )}
+          {bigJump && (
+            <div style={{ ...S.card, padding:'10px 14px', border:'1px solid rgba(74,222,128,.25)', background:'rgba(74,222,128,.06)' }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:C.green, marginBottom:3 }}>📈 NEJVĚTŠÍ SKOK</div>
+              <div style={{ fontWeight:800, fontSize:15 }}>{bigJump.name}</div>
+              <div style={{ fontSize:12, color:C.muted }}>+<span style={{ color:C.green, fontWeight:900 }}>{bigJump.jump} b</span> oproti min. kolu</div>
+            </div>
+          )}
+        </div>
+      )}
+      {rows.map((t, i) => {
+        const isLast = i === last && rows.length > 1;
+        const col = topCol[i] || C.cyan;
+        return (
+          <div key={t.name}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', marginBottom:isLast?0:7, borderRadius:isLast?'14px 14px 0 0':14,
+              background: isLast ? 'linear-gradient(135deg,rgba(248,113,113,.15),rgba(220,38,38,.08))' : i<3 ? `linear-gradient(135deg,${col}18,${col}06)` : 'rgba(255,255,255,.02)',
+              border: `1px solid ${isLast ? 'rgba(248,113,113,.4)' : i<3 ? col+'33' : C.border}`,
+              animation: `fadeUp .3s ease ${i*.05}s both` }}>
+              <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:isLast?20:i<3?20:13, fontWeight:900, background:isLast?'rgba(248,113,113,.2)':i<3?'transparent':C.bg3, color:isLast?C.red:i<3?col:C.muted, border:isLast?'1px solid rgba(248,113,113,.4)':'none' }}>
+                {isLast ? '💀' : i < 3 ? MEDALS[i] : i+1}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:17, color:isLast?C.red:C.text, textDecoration:isLast?'line-through':'none' }}>
+                  {t.name}{i===0 && <span style={{ marginLeft:6, fontSize:12 }}>👑</span>}
+                </div>
+                <div style={{ marginTop:5, height:3, background:'rgba(255,255,255,.05)', borderRadius:2, overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${(t.total/max)*100}%`, borderRadius:2, background:isLast?'linear-gradient(90deg,#7f1d1d,#ef4444)':i<3?`linear-gradient(90deg,${col}88,${col})`:C.blue, transition:'width .7s ease' }}/>
+                </div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontWeight:900, fontSize:26, lineHeight:1, color:isLast?C.red:i<3?col:C.cyan }}>{t.total}</div>
+                <div style={{ fontSize:9, color:isLast?'rgba(248,113,113,.6)':C.muted, letterSpacing:1 }}>BODŮ</div>
+              </div>
+            </div>
+            {isLast && (
+              <div style={{ background:'linear-gradient(135deg,rgba(127,29,29,.6),rgba(69,10,10,.8))', border:'1px solid rgba(248,113,113,.4)', borderTop:'none', borderRadius:'0 0 14px 14px', padding:'8px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:7 }}>
+                <div style={{ fontSize:11, color:'rgba(248,113,113,.9)', fontWeight:700, letterSpacing:1 }}>
+                  ⚠️ {settings?.punishment || 'POSLEDNÍ MÍSTO — ČEKÁ TĚ TREST'}
+                </div>
+                <div style={{ fontSize:18 }}>🍺</div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── TABLE ────────────────────────────────────────────────────
+function Table({ players, rounds, scores, onScore, reactions, onReaction, comments, onComment, disputes, onDispute, onResolve, myName }) {
+  const [edit, setEdit] = useState(null); const [val, setVal] = useState('');
+  const [showEmoji, setShowEmoji] = useState(null);
+  const [reportCell, setReportCell] = useState(null); const [reportVal, setReportVal] = useState('');
+  const [commentRound, setCommentRound] = useState(null); const [commentVal, setCommentVal] = useState('');
+  const [sub, setSub] = useState('scores');
+  const rows = players.map(p => ({ name:p, total:rounds.reduce((s,r) => s+(scores[sk(p,r)]??0),0) })).sort((a,b) => b.total-a.total);
+  const commit = () => { if (!edit) return; const n = val===''?null:Number(val); if (val!==''&&isNaN(n)){setEdit(null);return;} onScore(edit,n); setEdit(null); };
+  const currentRound = [...rounds].reverse().find(r => players.some(p => scores[sk(p,r)] != null)) || rounds[rounds.length-1];
+  const currentRows = currentRound ? players.map(p => ({ name:p, pts:scores[sk(p,currentRound)]??null })).filter(r=>r.pts!==null).sort((a,b)=>b.pts-a.pts) : [];
+
+  // Count open disputes per cell
+  const cellDisputeCount = key => Object.values(disputes[key]||{}).filter(d=>!d.resolved).length;
+  const totalOpen = Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
+
+  if (!players.length || !rounds.length) return <p style={{ textAlign:'center', padding:60, color:C.muted }}>Přidej hráče a kola ve Správě</p>;
+  return (
+    <div>
+      {currentRound && (
+        <div style={{ position:'sticky', top:52, zIndex:40, marginBottom:10, background:'rgba(5,10,20,.97)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', borderRadius:14, border:'1px solid rgba(56,189,248,.2)', padding:'10px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.6)' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:currentRows.length?8:0 }}>
+            <div><div style={{ fontSize:9, letterSpacing:3, color:C.muted }}>AKTUÁLNÍ KOLO</div><div style={{ fontSize:17, fontWeight:900, color:C.cyan }}>🏒 {currentRound}</div></div>
+            <div style={{ textAlign:'right' }}><div style={{ fontSize:9, letterSpacing:3, color:C.muted }}>VEDE</div><div style={{ fontSize:14, fontWeight:900, color:C.gold }}>{rows[0]?`${rows[0].name} · ${rows[0].total} b`:'—'}</div></div>
+          </div>
+          {currentRows.length > 0 && (
+            <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+              {currentRows.slice(0,6).map((r,i) => (
+                <div key={r.name} style={{ display:'flex', alignItems:'center', gap:4, background:i===0?'rgba(251,191,36,.15)':'rgba(255,255,255,.05)', border:`1px solid ${i===0?'rgba(251,191,36,.4)':C.border}`, borderRadius:20, padding:'3px 9px' }}>
+                  <span style={{ fontSize:10 }}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}</span>
+                  <span style={{ fontSize:11, fontWeight:700 }}>{r.name}</span>
+                  <span style={{ fontSize:12, fontWeight:900, color:i===0?C.gold:C.cyan }}>{r.pts}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ display:'flex', gap:4, marginBottom:12, background:'rgba(255,255,255,.03)', borderRadius:10, padding:3, border:`1px solid ${C.border}` }}>
+        {[['scores','📊 Skóre'],['comments','💬 Komentáře'],['disputes','⚠️ Spory' + (totalOpen>0?` (${totalOpen})`:'')]].map(([k,l]) => (
+          <button key={k} onClick={() => setSub(k)} style={{ flex:1, padding:'8px 0', border:'none', borderRadius:8, cursor:'pointer', fontFamily:'inherit', fontSize:11, fontWeight:800, letterSpacing:.5,
+            background: sub===k ? (k==='disputes'?'linear-gradient(135deg,#92400e,#b45309)':'linear-gradient(135deg,#1d4ed8,#0369a1)') : 'transparent',
+            color: sub===k ? '#fff' : k==='disputes'&&totalOpen>0 ? C.orange : C.muted }}>{l}</button>
+        ))}
+      </div>
+      {sub === 'scores' && (
+        <div>
+          <div style={{ overflowX:'auto', borderRadius:14, border:`1px solid ${C.border}` }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:Math.max(300, 110+rounds.length*72) }}>
+              <thead>
+                <tr style={{ background:'linear-gradient(135deg,rgba(59,130,246,.4),rgba(29,78,216,.3))' }}>
+                  <th style={{ padding:'11px 14px', textAlign:'left', fontWeight:800, color:C.cyan, fontSize:10, letterSpacing:2, position:'sticky', left:0, background:'#0d1e3a', whiteSpace:'nowrap' }}>HRÁČ</th>
+                  {rounds.map(r => <th key={r} style={{ padding:'11px 8px', textAlign:'center', fontWeight:800, color:C.cyan, fontSize:10, whiteSpace:'nowrap' }}>{r}</th>)}
+                  <th style={{ padding:'11px 14px', textAlign:'center', fontWeight:800, color:C.gold, fontSize:10 }}>Σ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((t, ri) => (
+                  <tr key={t.name} style={{ borderTop:`1px solid ${C.border}`, background:ri%2===0?'rgba(255,255,255,.015)':'transparent' }}>
+                    <td style={{ padding:'9px 14px', fontWeight:700, fontSize:14, whiteSpace:'nowrap', position:'sticky', left:0, background:ri%2===0?'#0f1e35':'#0b1628' }}>
+                      {MEDALS[ri] || <span style={{ color:C.muted, fontSize:11 }}>#{ri+1} </span>}{t.name}
+                    </td>
+                    {rounds.map(r => {
+                      const key = sk(t.name, r); const v = scores[key] ?? null;
+                      const isMyRow = t.name === myName;
+                      const rxs = reactions[key] || {}; const myRx = rxs[fk(myName)];
+                      const rxCounts = {}; Object.values(rxs).forEach(e => { rxCounts[e] = (rxCounts[e]||0)+1; });
+                      const dCount = cellDisputeCount(key);
+                      const isReporting = reportCell === key;
+                      return (
+                        <td key={r} style={{ padding:'4px', textAlign:'center', position:'relative',
+                          background: dCount>0 ? 'rgba(251,146,60,.06)' : 'transparent' }}>
+                          {isReporting
+                            ? <div style={{ position:'absolute', zIndex:200, top:'100%', left:'50%', transform:'translateX(-50%)', background:C.bg2, border:'1px solid rgba(251,146,60,.5)', borderRadius:12, padding:'10px 12px', width:200, boxShadow:'0 8px 30px rgba(0,0,0,.7)' }}>
+                                <div style={{ fontSize:11, fontWeight:800, color:C.orange, marginBottom:6 }}>⚠️ Nahlásit skóre {v}</div>
+                                <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>{t.name} · {r}</div>
+                                <textarea value={reportVal} onChange={e=>setReportVal(e.target.value)} placeholder="Proč je to špatně? (např. měl jen 45 bodů)" rows={3} maxLength={150} style={{ ...S.input, fontSize:12, resize:'none', marginBottom:8 }}/>
+                                <div style={{ display:'flex', gap:6 }}>
+                                  <button onClick={()=>{ if(reportVal.trim()){ onDispute(key,reportVal.trim()); setReportCell(null); setReportVal(''); }}} style={{ flex:1, background:'linear-gradient(135deg,#92400e,#b45309)', border:'none', borderRadius:8, color:'#fff', fontWeight:800, padding:'7px 0', cursor:'pointer', fontSize:12, fontFamily:'inherit' }}>Odeslat</button>
+                                  <button onClick={()=>{ setReportCell(null); setReportVal(''); }} style={{ background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, color:C.muted, fontWeight:700, padding:'7px 10px', cursor:'pointer', fontSize:12, fontFamily:'inherit' }}>✕</button>
+                                </div>
+                              </div>
+                            : null
+                          }
+                          {edit === key
+                            ? <input autoFocus type="number" value={val} onChange={e => setVal(e.target.value)} onBlur={commit} onKeyDown={e => { if(e.key==='Enter') commit(); if(e.key==='Escape') setEdit(null); }} style={{ width:58, textAlign:'center', background:'rgba(59,130,246,.3)', border:`2px solid ${C.cyan}`, borderRadius:8, color:'#fff', fontFamily:'inherit', fontSize:15, fontWeight:800, padding:5, outline:'none' }}/>
+                            : <div>
+                                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:3 }}>
+                                  {isMyRow
+                                    ? <button onClick={() => { setEdit(key); setVal(v ?? ''); }} style={{ minWidth:42, padding:'5px 6px', borderRadius:8, cursor:'pointer',
+                                        background: dCount>0?'rgba(251,146,60,.15)':v!==null?'rgba(59,130,246,.2)':'rgba(255,255,255,.03)',
+                                        border: dCount>0?'1px solid rgba(251,146,60,.5)':v!==null?'1px solid rgba(56,189,248,.25)':`1px dashed ${C.faint}`,
+                                        color:v!==null?C.text:C.faint, fontFamily:'inherit', fontSize:14, fontWeight:800 }}>
+                                        {v !== null ? v : '—'}
+                                      </button>
+                                    : <div style={{ minWidth:42, padding:'5px 6px', borderRadius:8, display:'inline-flex', alignItems:'center', justifyContent:'center',
+                                        background: dCount>0?'rgba(251,146,60,.12)':v!==null?'rgba(255,255,255,.06)':'transparent',
+                                        border: dCount>0?'1px solid rgba(251,146,60,.4)':'none',
+                                        color:v!==null?C.text:C.faint, fontSize:14, fontWeight:800 }}>
+                                        {v !== null ? v : <span style={{ fontSize:11 }}>🔒</span>}
+                                      </div>
+                                  }
+                                  {/* ⚠️ report button — only on others' scores */}
+                                  {!isMyRow && v !== null && (
+                                    <button onClick={()=>{ setReportCell(reportCell===key?null:key); setReportVal(''); }}
+                                      style={{ width:18, height:18, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900,
+                                        background: dCount>0?'rgba(251,146,60,.3)':'rgba(255,255,255,.06)',
+                                        color: dCount>0?C.orange:C.faint }}>
+                                      {dCount>0?dCount:'!'}
+                                    </button>
+                                  )}
+                                  {/* dispute indicator on own row */}
+                                  {isMyRow && dCount>0 && (
+                                    <span style={{ fontSize:9, background:'rgba(251,146,60,.25)', color:C.orange, borderRadius:'50%', width:16, height:16, display:'inline-flex', alignItems:'center', justifyContent:'center', fontWeight:900 }}>{dCount}</span>
+                                  )}
+                                </div>
+                                {v !== null && (
+                                  <div style={{ display:'flex', justifyContent:'center', gap:2, marginTop:2, flexWrap:'wrap' }}>
+                                    {Object.entries(rxCounts).map(([em, cnt]) => (
+                                      <span key={em} onClick={() => onReaction(key, em===myRx?null:em)} style={{ fontSize:10, cursor:'pointer', background:em===myRx?'rgba(56,189,248,.2)':'rgba(255,255,255,.05)', borderRadius:10, padding:'1px 4px', border:em===myRx?'1px solid rgba(56,189,248,.4)':`1px solid ${C.border}` }}>
+                                        {em}{cnt > 1 ? cnt : ''}
+                                      </span>
+                                    ))}
+                                    <span onClick={() => setShowEmoji(showEmoji===key?null:key)} style={{ fontSize:10, cursor:'pointer', color:C.muted, background:'rgba(255,255,255,.03)', borderRadius:10, padding:'1px 4px', border:`1px solid ${C.border}` }}>+</span>
+                                  </div>
+                                )}
+                                {showEmoji === key && (
+                                  <div style={{ position:'absolute', zIndex:100, background:C.bg2, border:`1px solid ${C.border}`, borderRadius:10, padding:'6px 8px', display:'flex', gap:4, top:'100%', left:'50%', transform:'translateX(-50%)', boxShadow:'0 4px 20px rgba(0,0,0,.5)' }}>
+                                    {EMOJIS.map(em => <span key={em} onClick={() => { onReaction(key, em===myRx?null:em); setShowEmoji(null); }} style={{ fontSize:18, cursor:'pointer', filter:em===myRx?'drop-shadow(0 0 4px #38bdf8)':'none' }}>{em}</span>)}
+                                  </div>
+                                )}
+                              </div>
+                          }
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding:'9px 14px', textAlign:'center', fontWeight:900, fontSize:19, color:ri===0?C.gold:C.cyan }}>{t.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p style={{ fontSize:10, color:C.faint, marginTop:8, textAlign:'right' }}>Upravuješ pouze svůj řádek 🔒 · + → emoji reakce</p>
+        </div>
+      )}
+      {sub === 'comments' && (
+        <div>
+          {rounds.length === 0 && <p style={{ textAlign:'center', padding:40, color:C.muted }}>Žádná kola</p>}
+          {[...rounds].reverse().map(r => {
+            const rk = fk(r); const rc = comments[rk] || {};
+            return (
+              <div key={r} style={{ ...S.card, marginBottom:12 }}>
+                <div style={{ fontWeight:800, fontSize:15, marginBottom:10, color:C.cyan }}>🏒 {r}</div>
+                {Object.entries(rc).map(([who, txt]) => (
+                  <div key={who} style={{ display:'flex', gap:8, marginBottom:8, padding:'8px 10px', background:'rgba(255,255,255,.03)', borderRadius:10, border:`1px solid ${C.border}` }}>
+                    <div style={{ fontWeight:700, fontSize:12, color:C.gold, flexShrink:0 }}>{who.replace(/-/g,' ')}:</div>
+                    <div style={{ fontSize:13, color:C.text, flex:1 }}>{txt}</div>
+                    {fk(myName) === who && <span onClick={() => onComment(rk, fk(myName), null)} style={{ fontSize:11, color:C.red, cursor:'pointer', flexShrink:0 }}>✕</span>}
+                  </div>
+                ))}
+                {commentRound === r
+                  ? <div style={{ display:'flex', gap:6 }}>
+                      <textarea value={commentVal} onChange={e => setCommentVal(e.target.value)} placeholder="Napiš komentář…" maxLength={120} rows={2} style={{ ...S.input, resize:'none', fontSize:13 }}/>
+                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                        <button onClick={() => { if(commentVal.trim()) onComment(rk, fk(myName), commentVal.trim()); setCommentRound(null); setCommentVal(''); }} style={{ background:'linear-gradient(135deg,#1d4ed8,#0369a1)', border:'none', borderRadius:8, color:'#fff', fontWeight:900, padding:'6px 10px', cursor:'pointer', fontSize:12 }}>OK</button>
+                        <button onClick={() => { setCommentRound(null); setCommentVal(''); }} style={{ background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, color:C.muted, fontWeight:700, padding:'6px 10px', cursor:'pointer', fontSize:11 }}>✕</button>
+                      </div>
+                    </div>
+                  : <button onClick={() => { setCommentRound(r); setCommentVal(rc[fk(myName)]||''); }} style={{ background:'rgba(255,255,255,.03)', border:`1px dashed ${C.border}`, borderRadius:8, color:C.muted, cursor:'pointer', padding:'7px 14px', width:'100%', fontFamily:'inherit', fontSize:12 }}>
+                      {rc[fk(myName)] ? '✏️ Upravit komentář' : '+ Přidat komentář'}
+                    </button>
+                }
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {sub === 'disputes' && (
+        <div>
+          {totalOpen === 0 && Object.keys(disputes).length === 0 && (
+            <div style={{ textAlign:'center', padding:50, color:C.muted }}>
+              <div style={{ fontSize:32, marginBottom:8 }}>✅</div>
+              <div>Žádné nahlášené spory — všechno čisté!</div>
+            </div>
+          )}
+          {Object.entries(disputes).map(([scoreKey, cellDisputes]) => {
+            const allDisputes = Object.entries(cellDisputes).sort((a,b) => b[1].time - a[1].time);
+            const openOnes = allDisputes.filter(([,d]) => !d.resolved);
+            const resolvedOnes = allDisputes.filter(([,d]) => d.resolved);
+            const parts = scoreKey.split('__');
+            const playerName = parts[0]?.replace(/-/g,' ');
+            const roundName  = parts[1]?.replace(/-/g,' ');
+            const scoreVal   = scores[scoreKey] ?? '?';
+            if (!allDisputes.length) return null;
+            return (
+              <div key={scoreKey} style={{ ...S.card, marginBottom:12,
+                border:`1px solid ${openOnes.length>0?'rgba(251,146,60,.4)':C.border}`,
+                background: openOnes.length>0?'rgba(251,146,60,.05)':'rgba(255,255,255,.02)' }}>
+                {/* header */}
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15 }}>{playerName}</div>
+                    <div style={{ fontSize:12, color:C.muted }}>{roundName} · <span style={{ color:C.cyan, fontWeight:800 }}>{scoreVal} bodů</span></div>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    {openOnes.length>0&&<div style={{ background:'rgba(251,146,60,.2)', border:'1px solid rgba(251,146,60,.4)', borderRadius:16, padding:'3px 10px', fontSize:11, fontWeight:800, color:C.orange }}>⚠️ {openOnes.length} otevřených</div>}
+                    {openOnes.length===0&&<div style={{ background:'rgba(74,222,128,.1)', border:'1px solid rgba(74,222,128,.3)', borderRadius:16, padding:'3px 10px', fontSize:11, fontWeight:800, color:C.green }}>✅ Vyřešeno</div>}
+                  </div>
+                </div>
+                {/* open disputes */}
+                {openOnes.map(([id, d]) => (
+                  <div key={id} style={{ background:'rgba(251,146,60,.1)', border:'1px solid rgba(251,146,60,.3)', borderRadius:10, padding:'10px 12px', marginBottom:8 }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                          <span style={{ fontWeight:800, fontSize:13, color:C.orange }}>⚠️ {d.who}</span>
+                          <span style={{ fontSize:10, color:C.muted }}>{new Date(d.time).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                        <div style={{ fontSize:13, color:C.text, lineHeight:1.4 }}>„{d.comment}"</div>
+                      </div>
+                      <button onClick={()=>onResolve(scoreKey,id)} style={{ background:'rgba(74,222,128,.15)', border:'1px solid rgba(74,222,128,.4)', color:C.green, borderRadius:8, cursor:'pointer', padding:'6px 10px', fontFamily:'inherit', fontSize:11, fontWeight:800, flexShrink:0 }}>
+                        ✅ Vyřešeno
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {/* resolved */}
+                {resolvedOnes.length>0&&(
+                  <div style={{ marginTop:4 }}>
+                    {resolvedOnes.map(([id,d])=>(
+                      <div key={id} style={{ display:'flex', gap:8, padding:'6px 10px', background:'rgba(255,255,255,.02)', borderRadius:8, marginBottom:4, opacity:.6 }}>
+                        <span style={{ fontSize:12, color:C.green }}>✅</span>
+                        <span style={{ fontSize:11, color:C.muted, flex:1 }}>{d.who}: „{d.comment}"</span>
+                        <span style={{ fontSize:10, color:C.faint }}>vyřešil {d.resolvedBy}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ fontSize:10, color:C.faint, textAlign:'center', marginTop:8 }}>
+            Spory jsou jen informační — řeší se dohodou v Messengeru 💬
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── GRAFY ────────────────────────────────────────────────────
+function Grafy({ players, rounds, scores }) {
+  if (!players.length || !rounds.length) return <p style={{ textAlign:'center', padding:60, color:C.muted }}>Přidej hráče a kola ve Správě</p>;
+  const palette = ['#38bdf8','#fbbf24','#4ade80','#f87171','#c084fc','#fb923c','#e879f9','#34d399','#818cf8','#f472b6','#a78bfa','#2dd4bf','#facc15','#60a5fa','#f97316'];
+
+  // Celkové body počítané aplikací
+  const totals = players.map(p => ({ name:p, total:rounds.reduce((s,r) => s+(scores[sk(p,r)]??0), 0) })).sort((a,b) => b.total-a.total);
+  const maxTotal = Math.max(...totals.map(t => t.total), 1);
+  const data = rounds.map((r, ri) => { const e = { round:r }; players.forEach(p => { e[p] = rounds.slice(0, ri+1).reduce((s, rr) => s+(scores[sk(p,rr)]??0), 0); }); return e; });
+  const W = 320, H = 180, PL = 38, PR = 8, PT = 10, PB = 26, iW = W-PL-PR, iH = H-PT-PB;
+  const maxVal = Math.max(...data.flatMap(d => players.map(p => d[p]||0)), 1);
+  const xPos = i => PL + i * (iW / Math.max(rounds.length-1, 1));
+  const yPos = v => PT + iH - (v/maxVal)*iH;
+  const roundStats = rounds.map(r => {
+    const pts = players.map(p => ({ name:p, pts:scores[sk(p,r)]??null })).filter(x => x.pts !== null);
+    const sorted = [...pts].sort((a,b) => b.pts-a.pts);
+    return { round:r, best:sorted[0], worst:sorted[sorted.length-1], avg:pts.length?Math.round(pts.reduce((s,x)=>s+x.pts,0)/pts.length):null };
+  }).filter(x => x.best);
+  return (
+    <div>
+      {/* Celkové body — počítané aplikací */}
+      <div style={{ ...S.card, marginBottom:12, border:'1px solid rgba(251,191,36,.2)', background:'rgba(251,191,36,.04)' }}>
+        <span style={S.lbl}>⭐ CELKOVÉ BODY — POČÍTÁNO APLIKACÍ</span>
+        {totals.map((t, i) => {
+          const topCol = [C.gold, C.silver, C.bronze];
+          const col = topCol[i] || C.cyan;
+          return (
+            <div key={t.name} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+              <div style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:i<3?14:11, fontWeight:900, color:i<3?col:C.muted }}>
+                {i < 3 ? MEDALS[i] : i+1}
+              </div>
+              <div style={{ fontSize:14, fontWeight:700, minWidth:80 }}>{t.name}</div>
+              <div style={{ flex:1, height:6, background:'rgba(255,255,255,.05)', borderRadius:3, overflow:'hidden' }}>
+                <div style={{ height:'100%', width:`${(t.total/maxTotal)*100}%`, borderRadius:3, background:i<3?`linear-gradient(90deg,${col}88,${col})`:C.blue, transition:'width .7s' }}/>
+              </div>
+              <div style={{ fontWeight:900, fontSize:18, color:i<3?col:C.cyan, minWidth:36, textAlign:'right' }}>{t.total}</div>
+              <div style={{ fontSize:9, color:C.muted }}>b</div>
+            </div>
+          );
+        })}
+        <div style={{ fontSize:10, color:C.faint, marginTop:4, textAlign:'right' }}>Součet všech zadaných skóre · automaticky</div>
+      </div>
+
+      {/* Line chart */}
+      <div style={{ ...S.card, marginBottom:12 }}>
+        <span style={S.lbl}>VÝVOJ — KUMULATIVNÍ BODY</span>
+        <div style={{ overflowX:'auto' }}>
+          <svg width={Math.max(W, rounds.length*55)} height={H} style={{ display:'block' }}>
+            {[0,.25,.5,.75,1].map(f => (
+              <g key={f}>
+                <line x1={PL} y1={PT+iH*f} x2={W-PR} y2={PT+iH*f} stroke="rgba(255,255,255,.06)" strokeWidth={1}/>
+                <text x={PL-4} y={PT+iH*f+4} textAnchor="end" fontSize={8} fill={C.muted}>{Math.round(maxVal*(1-f))}</text>
+              </g>
+            ))}
+            {rounds.map((r,i) => <text key={r} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={8} fill={C.muted}>{r.length>7?r.slice(0,7)+'…':r}</text>)}
+            {players.map((p, pi) => {
+              if (rounds.length < 2) return null;
+              const pts = data.map((d,i) => ({ x:xPos(i), y:yPos(d[p]||0) }));
+              const path = pts.map((pt,i) => `${i===0?'M':'L'}${pt.x},${pt.y}`).join(' ');
+              const col = palette[pi % palette.length];
+              return (
+                <g key={p}>
+                  <path d={path} stroke={col} strokeWidth={2} fill="none" strokeLinejoin="round" strokeLinecap="round"/>
+                  {pts.map((pt,i) => <circle key={i} cx={pt.x} cy={pt.y} r={3} fill={col}/>)}
+                  <text x={pts[pts.length-1].x+4} y={pts[pts.length-1].y+4} fontSize={8} fill={col} fontWeight={700}>{p}</text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+      <span style={S.lbl}>STATISTIKY PO KOLECH</span>
+      {[...roundStats].reverse().map(rs => (
+        <div key={rs.round} style={{ ...S.card, marginBottom:8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <div style={{ fontWeight:800, fontSize:15 }}>🏒 {rs.round}</div>
+            {rs.avg !== null && <div style={{ fontSize:11, color:C.muted }}>průměr <span style={{ color:C.cyan, fontWeight:700 }}>{rs.avg} b</span></div>}
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            {rs.best && <div style={{ background:'rgba(251,191,36,.1)', borderRadius:10, padding:'8px 10px', border:'1px solid rgba(251,191,36,.25)' }}>
+              <div style={{ fontSize:9, color:C.gold, letterSpacing:2, marginBottom:2 }}>🥇 NEJLEPŠÍ</div>
+              <div style={{ fontWeight:700, fontSize:13 }}>{rs.best.name}</div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.gold }}>{rs.best.pts} b</div>
+            </div>}
+            {rs.worst && rs.worst.name !== rs.best?.name && <div style={{ background:'rgba(248,113,113,.08)', borderRadius:10, padding:'8px 10px', border:'1px solid rgba(248,113,113,.2)' }}>
+              <div style={{ fontSize:9, color:C.red, letterSpacing:2, marginBottom:2 }}>💀 NEJHORŠÍ</div>
+              <div style={{ fontWeight:700, fontSize:13 }}>{rs.worst.name}</div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.red }}>{rs.worst.pts} b</div>
+            </div>}
+          </div>
+        </div>
+      ))}
+      {roundStats.length === 0 && <p style={{ textAlign:'center', padding:30, color:C.muted }}>Zadej skóre pro zobrazení grafů</p>}
+    </div>
+  );
+}
+
+// ── SQUAD ────────────────────────────────────────────────────
+function Tile({ p }) { const pos = POS[p.pos]||POS['Ú']; return <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, minWidth:70, maxWidth:85, position:'relative' }}>{p.captain && <div style={{ position:'absolute', top:-7, right:-3, background:C.gold, color:'#000', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', zIndex:1 }}>C</div>}<div style={{ width:40, height:40, borderRadius:'50%', background:pos.bg, border:`2px solid ${pos.color}66`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:900, color:pos.color }}>{p.pos}</div><div style={{ fontSize:9, fontWeight:700, textAlign:'center', color:C.text, lineHeight:1.2, maxWidth:78, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name.split(' ')[0]}</div><div style={{ fontSize:9, color:pos.color, fontWeight:900 }}>{p.fp}<span style={{ color:C.muted, fontSize:8 }}>fb</span></div><div style={{ fontSize:8, color:C.muted }}>{p.goals}G {p.assists}A</div></div>; }
+function Rink({ players }) { const G=players.filter(p=>p.pos==='B'),D=players.filter(p=>p.pos==='O'),F=players.filter(p=>p.pos==='Ú'); const Row=({group,lbl})=><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}><div style={{fontSize:8,letterSpacing:3,color:'#334155'}}>{lbl}</div><div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{group.map((p,i)=><Tile key={i} p={p}/>)}</div></div>; return <div style={{background:'linear-gradient(180deg,rgba(0,40,80,.5),rgba(0,20,50,.7))',border:'1px solid rgba(56,189,248,.12)',borderRadius:16,padding:'18px 12px',position:'relative',overflow:'hidden'}}><div style={{position:'absolute',inset:0,pointerEvents:'none'}}><div style={{position:'absolute',top:'50%',left:'8%',right:'8%',height:1,background:'rgba(220,38,38,.12)'}}/><div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',width:70,height:70,borderRadius:'50%',border:'1px solid rgba(220,38,38,.1)'}}/></div><div style={{display:'flex',flexDirection:'column',gap:16,position:'relative'}}>{F.length>0&&<Row group={F} lbl="ÚTOČNÍCI"/>}{D.length>0&&<Row group={D} lbl="OBRÁNCI"/>}{G.length>0&&<Row group={G} lbl="BRANKÁŘ"/>}</div></div>; }
+
+function Squads({ players, squads, onSquads, myName, toast }) {
+  const [owner,setOwner]=useState(myName||players[0]||''); const [sub,setSub]=useState('current');
+  const [kolo,setKolo]=useState(''); const [input,setInput]=useState(''); const [busy,setBusy]=useState(false); const [err,setErr]=useState('');
+  const fileRef=useRef(); const apiKey=()=>localStorage.getItem('hk26_apikey')||'';
+  useEffect(()=>{if(owner&&squads[owner]){const ks=Object.keys(squads[owner].rounds||{});if(ks.length)setKolo(ks[ks.length-1]);}},[owner]);
+  const od=squads[owner]||{rounds:{}}; const rounds=Object.keys(od.rounds||{});
+  const active=od.rounds?.[kolo]||od.rounds?.[rounds[rounds.length-1]]||null; const activeK=od.rounds?.[kolo]?kolo:rounds[rounds.length-1]||'';
+  const map={}; Object.values(od.rounds||{}).forEach(rd=>{(rd.players||[]).forEach(p=>{if(!map[p.name])map[p.name]={...p,fp:0,goals:0,assists:0,pts:0,n:0,cap:0};map[p.name].fp+=p.fp;map[p.name].goals+=p.goals;map[p.name].assists+=p.assists;map[p.name].pts+=p.pts;map[p.name].n++;if(p.captain)map[p.name].cap++;});});
+  const stats=Object.values(map).sort((a,b)=>b.fp-a.fp); const maxFP=Math.max(...stats.map(s=>s.fp),1);
+  async function upload(e){const file=e.target.files?.[0];if(!file||!input.trim()){setErr('Zadej název kola!');return;}if(!apiKey()){setErr('Nastav API klíč ve Správě!');return;}setBusy(true);setErr('');try{const img=await b64(file);const data=await aiParse(img,apiKey());const rk=input.trim();const upd={...squads,[owner]:{rounds:{...(squads[owner]?.rounds||{}),[rk]:{totalPoints:data.totalPoints||0,players:data.players||[]}}}};await onSquads(upd,`${owner} · ${rk} (${data.players?.length||0} hráčů)`);setKolo(rk);setInput('');setSub('current');toast(`✓ ${owner} – ${rk}: ${data.players?.length||0} hráčů`);}catch(ex){setErr('Chyba: '+ex.message);}finally{setBusy(false);if(fileRef.current)fileRef.current.value='';}}
+  return(
+    <div>
+      <div style={{marginBottom:12}}><span style={S.lbl}>HRÁČ</span><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{players.map(p=><button key={p} onClick={()=>setOwner(p)} style={{padding:'7px 13px',borderRadius:20,cursor:'pointer',border:'none',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(owner===p)}}>{p}</button>)}</div></div>
+      <div style={{display:'flex',gap:3,marginBottom:14,background:'rgba(255,255,255,.03)',borderRadius:10,padding:3,border:`1px solid ${C.border}`}}>{[['current','⚡'],['history','📅'],['stats','📊'],['upload','📸']].map(([k,l])=><button key={k} onClick={()=>setSub(k)} style={{flex:1,padding:'8px 0',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontSize:17,background:sub===k?'linear-gradient(135deg,#1d4ed8,#0369a1)':'transparent',boxShadow:sub===k?'0 2px 10px rgba(29,78,216,.4)':'none'}}>{l}</button>)}</div>
+      {sub==='current'&&<div>{rounds.length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>{rounds.map(r=><button key={r} onClick={()=>setKolo(r)} style={{padding:'5px 12px',borderRadius:16,cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,border:'none',...S.btn(activeK===r,C.cyan)}}>{r}</button>)}</div>}{active?<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}><span style={{fontSize:12,color:C.muted}}>{activeK}</span><div style={{background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.35)',borderRadius:10,padding:'6px 14px',display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:9,color:C.gold,letterSpacing:2}}>CELKEM</span><span style={{fontSize:24,fontWeight:900,color:C.gold}}>{active.totalPoints}</span><span style={{fontSize:9,color:'#d97706'}}>fb</span></div></div><Rink players={active.players||[]}/><div style={{marginTop:12}}>{(active.players||[]).map((p,i)=>{const pos=POS[p.pos]||POS['Ú'];return(<div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',marginBottom:5,borderRadius:10,background:p.captain?'rgba(251,191,36,.07)':'rgba(255,255,255,.02)',border:p.captain?'1px solid rgba(251,191,36,.2)':`1px solid ${C.border}`}}><Chip pos={p.pos}/><div style={{flex:1,fontWeight:700,fontSize:14}}>{p.captain&&<span style={{background:C.gold,color:'#000',borderRadius:4,padding:'1px 5px',fontSize:9,fontWeight:900,marginRight:5}}>C</span>}{p.name}</div><div style={{fontSize:12,color:C.muted,display:'flex',gap:10}}><span>{p.goals}G</span><span>{p.assists}A</span></div><div style={{fontWeight:900,fontSize:16,color:pos.color}}>{p.fp}<span style={{fontSize:9,color:C.muted}}> fb</span></div></div>);})}</div></>:<p style={{textAlign:'center',padding:50,color:C.muted}}>Zatím žádná data — nahraj screenshot 📸</p>}</div>}
+      {sub==='history'&&<div>{!rounds.length&&<p style={{textAlign:'center',padding:50,color:C.muted}}>Žádná historie</p>}{rounds.map(r=>{const rd=od.rounds[r];return(<div key={r} style={{marginBottom:12,...S.card,padding:0,overflow:'hidden'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 16px',background:'rgba(29,78,216,.2)',borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:800,fontSize:15}}>🏒 {r}</span><span style={{fontWeight:900,fontSize:20,color:C.gold}}>{rd.totalPoints} <span style={{fontSize:10,color:'#d97706'}}>fb</span></span></div><div style={{padding:'10px 12px',display:'flex',gap:8,flexWrap:'wrap'}}>{(rd.players||[]).map((p,i)=><Tile key={i} p={p}/>)}</div></div>);})}</div>}
+      {sub==='stats'&&<div>{rounds.length>0&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>{[['🏒','Kola',rounds.length,C.cyan],['⚽','Góly',stats.reduce((s,p)=>s+p.goals,0),C.green],['🅰','Asistence',stats.reduce((s,p)=>s+p.assists,0),C.orange],['⭐','Fantasy body',stats.reduce((s,p)=>s+p.fp,0),C.gold],['📈','Průměr/kolo',rounds.length?Math.round(Object.values(od.rounds).reduce((s,r)=>s+(r.totalPoints||0),0)/rounds.length):0,C.purple],['👑','Top hráč',stats[0]?.name?.split(' ')[0]||'—','#f472b6']].map(([ic,lb,v,col])=><div key={lb} style={{...S.card,padding:'10px 12px',border:`1px solid ${col}22`,borderRadius:12}}><div style={{fontSize:18,marginBottom:2}}>{ic}</div><div style={{fontSize:8,color:C.muted,letterSpacing:1}}>{lb.toUpperCase()}</div><div style={{fontWeight:900,fontSize:15,color:col,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v}</div></div>)}</div>}{stats.map(p=>{const pos=POS[p.pos]||POS['Ú'];return(<div key={p.name} style={{...S.card,marginBottom:10}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}><Chip pos={p.pos}/><div style={{flex:1,fontWeight:800,fontSize:15}}>{p.name}</div><div style={{fontSize:10,color:C.muted}}>{p.n}×</div>{p.cap>0&&<span style={{background:C.gold,color:'#000',borderRadius:4,padding:'1px 6px',fontSize:9,fontWeight:900}}>C×{p.cap}</span>}</div><div style={{marginBottom:8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:10,color:C.muted}}>Fantasy body</span><span style={{fontSize:13,fontWeight:800,color:pos.color}}>{p.fp}</span></div><div style={{height:4,background:'rgba(255,255,255,.05)',borderRadius:2}}><div style={{height:'100%',width:`${(p.fp/maxFP)*100}%`,background:pos.color,borderRadius:2}}/></div></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>{[['⚽ Góly',p.goals,C.green],['🅰 Asist.',p.assists,C.orange],['📊 Body',p.pts,C.cyan]].map(([l,v,c])=><div key={l} style={{textAlign:'center',background:`${c}11`,borderRadius:8,padding:'5px 0',border:`1px solid ${c}18`}}><div style={{fontWeight:900,fontSize:18,color:c}}>{v}</div><div style={{fontSize:9,color:C.muted}}>{l}</div></div>)}</div></div>);})}</div>}
+      {sub==='upload'&&<div><div style={{...S.card,marginBottom:12,border:'1px solid rgba(59,130,246,.25)',background:'rgba(29,78,216,.1)'}}><span style={S.lbl}>NAHRÁT PRO: {owner.toUpperCase()}</span><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Název kola</div><input value={input} onChange={e=>setInput(e.target.value)} placeholder="Kolo 5…" style={S.input}/></div><label style={{display:'block',border:'2px dashed rgba(56,189,248,.3)',borderRadius:12,padding:'22px 16px',textAlign:'center',cursor:'pointer',background:'rgba(56,189,248,.04)'}}><input ref={fileRef} type="file" accept="image/*" onChange={upload} style={{display:'none'}}/>{busy?<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}><Spinner/><span style={{fontSize:13,color:C.cyan,fontWeight:700}}>AI čte screenshot…</span></div>:<div><div style={{fontSize:30,marginBottom:6}}>📸</div><div style={{fontSize:13,color:C.cyan,fontWeight:700}}>Klepni a vyber fotku</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>AI přečte squad automaticky</div></div>}</label>{err&&<div style={{background:'rgba(248,113,113,.12)',border:'1px solid rgba(248,113,113,.3)',borderRadius:8,padding:'8px 12px',fontSize:12,color:C.red,marginTop:8}}>{err}</div>}</div>{!apiKey()&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:10,padding:'10px 14px',fontSize:12,color:C.gold}}>⚠️ Pro AI funkci nastav Anthropic API klíč ve Správě</div>}</div>}
+    </div>
+  );
+}
+
+// ── HISTORY ──────────────────────────────────────────────────
+function History({ activity }) {
+  const entries = Object.entries(activity).map(([id,v]) => ({id,...v})).sort((a,b) => b.time-a.time).slice(0,100);
+  const icons = { score:{ic:'📊',col:C.cyan}, player:{ic:'👤',col:C.green}, round:{ic:'🏒',col:C.orange}, squad:{ic:'📸',col:C.purple}, delete:{ic:'🗑',col:C.red}, join:{ic:'🆕',col:C.gold}, dispute:{ic:'⚠️',col:C.orange}, resolve:{ic:'✅',col:C.green} };
+  const fmt = ts => { const d=new Date(ts), diff=Math.floor((new Date()-d)/1000); if(diff<60) return'před '+diff+'s'; if(diff<3600) return'před '+Math.floor(diff/60)+'min'; if(diff<86400) return'před '+Math.floor(diff/3600)+'h'; return d.toLocaleDateString('cs',{day:'numeric',month:'numeric'})+' '+d.toLocaleTimeString('cs',{hour:'2-digit',minute:'2-digit'}); };
+  if (!entries.length) return <div style={{ textAlign:'center', padding:60, color:C.muted }}><div style={{ fontSize:32, marginBottom:8 }}>📋</div>Zatím žádná aktivita</div>;
+  return (
+    <div>
+      <div style={{ fontSize:10, letterSpacing:3, color:C.cyan, marginBottom:12 }}>POSLEDNÍ AKTIVITY ({entries.length})</div>
+      {entries.map((e,i) => { const t = icons[e.type]||{ic:'•',col:C.muted}; return (
+        <div key={e.id} style={{ display:'flex', gap:10, padding:'10px 12px', marginBottom:6, borderRadius:12, background:'rgba(255,255,255,.03)', border:`1px solid ${C.border}`, animation:`fadeUp .2s ease ${Math.min(i,.1)*0.03}s both` }}>
+          <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, background:`${t.col}18`, border:`1px solid ${t.col}33`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>{t.ic}</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}><span style={{ fontWeight:800, fontSize:14, color:t.col }}>{e.who}</span><span style={{ fontSize:12, color:C.muted }}>{e.what}</span></div>
+            {e.detail && <div style={{ fontSize:12, color:C.text, background:'rgba(255,255,255,.04)', borderRadius:6, padding:'3px 8px', display:'inline-block', border:`1px solid ${C.border}`, maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.detail}</div>}
+          </div>
+          <div style={{ fontSize:10, color:C.muted, whiteSpace:'nowrap', paddingTop:2, flexShrink:0 }}>{fmt(e.time)}</div>
+        </div>
+      ); })}
+    </div>
+  );
+}
+
+// ── MANAGE ───────────────────────────────────────────────────
+function Manage({ players, rounds, squads, myName, toast, onPlayers, onRounds, onScoreDel, onSquads, settings, onSettings }) {
+  const [newP,setNewP]=useState(''); const [newR,setNewR]=useState('');
+  const [key,setKey]=useState(()=>localStorage.getItem('hk26_apikey')||'');
+  const [punishment,setPunishment]=useState(settings?.punishment||'');
+  const [nextMatch,setNextMatch]=useState(settings?.nextMatch||'');
+  const [confirmStep,setConfirmStep]=useState(0);
+  useEffect(()=>{ setPunishment(settings?.punishment||''); setNextMatch(settings?.nextMatch||''); },[settings]);
+  const saveKey=()=>{localStorage.setItem('hk26_apikey',key);toast('API klíč uložen ✓');};
+  const saveSettings=()=>{onSettings({punishment,nextMatch});toast('Nastavení uloženo ✓');};
+  const addP=()=>{const n=newP.trim();if(!n||players.includes(n))return;onPlayers([...players,n],'přidal hráče',n);setNewP('');toast(`„${n}" přidán`);};
+  const delP=p=>{onPlayers(players.filter(x=>x!==p),'odstranil hráče',p);const sq={...squads};delete sq[p];onSquads(sq);onScoreDel(rounds.map(r=>sk(p,r)));toast(`„${p}" odstraněn`);};
+  const addR=()=>{const n=newR.trim();if(!n||rounds.includes(n))return;onRounds([...rounds,n],'přidal kolo',n);setNewR('');toast(`Kolo „${n}" přidáno`);};
+  const delR=r=>{onRounds(rounds.filter(x=>x!==r),'odstranil kolo',r);onScoreDel(players.map(p=>sk(p,r)));toast(`Kolo „${r}" odstraněno`);};
+  const Sect=({title,items,v,sv,add,del})=>(
+    <div style={{...S.card,marginBottom:12}}>
+      <span style={S.lbl}>{title} ({items.length})</span>
+      <div style={{display:'flex',gap:6,marginBottom:10}}><input value={v} onChange={e=>sv(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} placeholder="Přidat…" style={S.input}/><button onClick={add} style={{background:'linear-gradient(135deg,#1d4ed8,#0369a1)',border:'none',borderRadius:10,color:'#fff',fontWeight:900,padding:'10px 16px',cursor:'pointer',fontSize:20,flexShrink:0}}>+</button></div>
+      <div style={{maxHeight:200,overflowY:'auto'}}>{items.map((item,i)=><div key={item} style={{display:'flex',alignItems:'center',padding:'8px 10px',background:'rgba(255,255,255,.03)',borderRadius:8,marginBottom:4,border:`1px solid ${C.border}`}}><span style={{color:C.muted,fontSize:11,minWidth:24}}>#{i+1}</span><span style={{flex:1,fontWeight:600,fontSize:14}}>{item}</span><button onClick={()=>del(item)} style={{background:'rgba(248,113,113,.12)',border:'1px solid rgba(248,113,113,.25)',color:C.red,borderRadius:6,cursor:'pointer',padding:'3px 10px',fontSize:12,fontFamily:'inherit'}}>✕</button></div>)}</div>
+    </div>
+  );
+  return (
+    <div>
+      <Sect title="HRÁČI" items={players} v={newP} sv={setNewP} add={addP} del={delP}/>
+      <Sect title="KOLA" items={rounds} v={newR} sv={setNewR} add={addR} del={delR}/>
+      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(192,132,252,.2)',background:'rgba(192,132,252,.05)'}}>
+        <span style={S.lbl}>⚙️ NASTAVENÍ SKUPINKY</span>
+        <div style={{marginBottom:10}}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Trest pro posledního 🍺</div><input value={punishment} onChange={e=>setPunishment(e.target.value)} placeholder="např. Staví celé skupině pivo" style={S.input}/></div>
+        <div style={{marginBottom:10}}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Příští zápas / kolo</div><input value={nextMatch} onChange={e=>setNextMatch(e.target.value)} type="datetime-local" style={{...S.input,colorScheme:'dark'}}/></div>
+        <button onClick={saveSettings} style={{...S.btn(true),width:'100%'}}>Uložit nastavení</button>
+      </div>
+      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(56,189,248,.2)',background:'rgba(29,78,216,.06)'}}>
+        <span style={S.lbl}>ANTHROPIC API KLÍČ</span>
+        <div style={{display:'flex',gap:6}}><input value={key} onChange={e=>setKey(e.target.value)} type="password" placeholder="sk-ant-…" style={S.input}/><button onClick={saveKey} style={{background:'linear-gradient(135deg,#1d4ed8,#0369a1)',border:'none',borderRadius:10,color:'#fff',fontWeight:900,padding:'10px 14px',cursor:'pointer',fontFamily:'inherit',fontSize:13,flexShrink:0}}>Uložit</button></div>
+        <p style={{fontSize:10,color:C.muted,marginTop:6}}>Uloží se jen do tvého zařízení.</p>
+      </div>
+      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(251,191,36,.2)',background:'rgba(251,191,36,.04)'}}>
+        <span style={S.lbl}>PŘIHLÁŠEN JAKO</span>
+        <div style={{fontSize:16,fontWeight:700,color:C.gold}}>{myName}</div>
+        <button onClick={()=>{localStorage.removeItem('hk26_myname');window.location.reload();}} style={{marginTop:8,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:'6px 12px',fontFamily:'inherit',fontSize:12}}>Změnit přezdívku</button>
+      </div>
+      <div style={{...S.card,border:`1px solid ${confirmStep>0?'rgba(248,113,113,.5)':'rgba(248,113,113,.2)'}`,background:'rgba(248,113,113,.04)'}}>
+        <span style={S.lbl}>⚠️ NEBEZPEČNÁ ZÓNA</span>
+        {confirmStep===0&&<button onClick={()=>setConfirmStep(1)} style={{background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:C.red,borderRadius:8,cursor:'pointer',padding:'9px 16px',width:'100%',fontFamily:'inherit',fontSize:13,fontWeight:700}}>🗑 Smazat všechna skóre</button>}
+        {confirmStep===1&&<div><div style={{background:'rgba(248,113,113,.12)',borderRadius:10,padding:'10px 12px',marginBottom:10}}><div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:4}}>Otázka 1 / 3</div><div style={{fontSize:13,color:C.text}}>Opravdu chceš smazat <strong>všechna skóre</strong>? Nejde to vrátit.</div></div><div style={{display:'flex',gap:8}}><button onClick={()=>setConfirmStep(2)} style={{flex:1,background:'rgba(248,113,113,.2)',border:`1px solid ${C.red}`,color:C.red,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:800,fontSize:13}}>Ano, chci</button><button onClick={()=>setConfirmStep(0)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:700}}>← Zpět</button></div></div>}
+        {confirmStep===2&&<div><div style={{background:'rgba(248,113,113,.15)',borderRadius:10,padding:'10px 12px',marginBottom:10}}><div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:4}}>Otázka 2 / 3</div><div style={{fontSize:13,color:C.text}}>Všechny výsledky ze <strong>všech kol</strong> nenávratně zmizí.</div></div><div style={{display:'flex',gap:8}}><button onClick={()=>setConfirmStep(3)} style={{flex:1,background:'rgba(248,113,113,.25)',border:`1px solid ${C.red}`,color:C.red,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:800,fontSize:13}}>Jsem si jistý</button><button onClick={()=>setConfirmStep(0)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:700}}>← Zpět</button></div></div>}
+        {confirmStep===3&&<div><div style={{background:'rgba(248,113,113,.2)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:`1px solid ${C.red}`}}><div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:4}}>⛔ Poslední šance — 3 / 3</div><div style={{fontSize:13,color:C.text}}>Tohle je <strong>nevratná akce</strong>.</div></div><div style={{display:'flex',gap:8}}><button onClick={()=>{onScoreDel('ALL');setConfirmStep(0);toast('🗑 Skóre smazána');}} style={{flex:1,background:'rgba(248,113,113,.4)',border:`2px solid ${C.red}`,color:'#fff',borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:900,fontSize:13}}>SMAZAT VŠE</button><button onClick={()=>setConfirmStep(0)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:700}}>← Zpět</button></div></div>}
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT APP ─────────────────────────────────────────────────
+function App() {
+  const [ready,setReady]=useState(false); const [fbOk,setFbOk]=useState(true);
+  const [myName,setMyName]=useState(()=>localStorage.getItem('hk26_myname'));
+  const [players,setPlayers]=useState([]); const [rounds,setRounds]=useState([]);
+  const [scores,setScores]=useState({}); const [squads,setSquads]=useState({});
+  const [activity,setActivity]=useState({}); const [reactions,setReactions]=useState({});
+  const [comments,setComments]=useState({}); const [settings,setSettingsState]=useState({});
+  const [disputes,setDisputes]=useState({});
+  const [tab,setTab]=useState('leaderboard'); const [msg,setMsg]=useState(null);
+  const toast=m=>setMsg(m);
+
+  useEffect(()=>{
+    if(!db){setFbOk(false);setReady(true);return;}
+    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false};
+    const check=()=>{if(Object.values(done).every(Boolean))setReady(true);};
+    const refs=[
+      [db.ref('config'),s=>{const d=s.val()||{};setPlayers(d.players||[]);setRounds(d.rounds||[]);done.cfg=true;check();},()=>{setFbOk(false);done.cfg=true;check();}],
+      [db.ref('scores'),s=>{setScores(s.val()||{});done.sc=true;check();},()=>{done.sc=true;check();}],
+      [db.ref('squads'),s=>{setSquads(s.val()||{});done.sq=true;check();},()=>{done.sq=true;check();}],
+      [db.ref('activity').limitToLast(100),s=>{setActivity(s.val()||{});done.act=true;check();},()=>{done.act=true;check();}],
+      [db.ref('reactions'),s=>{setReactions(s.val()||{});done.rx=true;check();},()=>{done.rx=true;check();}],
+      [db.ref('comments'),s=>{setComments(s.val()||{});done.cm=true;check();},()=>{done.cm=true;check();}],
+      [db.ref('settings'),s=>{setSettingsState(s.val()||{});done.st=true;check();},()=>{done.st=true;check();}],
+      [db.ref('disputes'),s=>{setDisputes(s.val()||{});done.dp=true;check();},()=>{done.dp=true;check();}],
+    ];
+    refs.forEach(([ref,cb,err])=>ref.on('value',cb,err));
+    return()=>refs.forEach(([ref])=>ref.off());
+  },[]);
+
+  const logActivity=useCallback((who,type,what,detail)=>{db?.ref('activity').push({who,type,what,detail:detail||'',time:Date.now()});},[]);
+  const saveConfig=useCallback((p,r)=>db?.ref('config').set({players:p,rounds:r}),[]);
+  const handlePlayers=useCallback((p,who,action,detail)=>{setPlayers(p);saveConfig(p,rounds);if(who)logActivity(who,'player',action,detail);},[rounds,saveConfig,logActivity]);
+  const handleRounds=useCallback((r,who,action,detail)=>{setRounds(r);saveConfig(players,r);if(who)logActivity(who,'round',action,detail);},[players,saveConfig,logActivity]);
+  const handleScore=useCallback((key,val,who)=>{
+    if(val===null)db?.ref(`scores/${key}`).remove();else db?.ref(`scores/${key}`).set(val);
+    if(who){const p=key.split('__');logActivity(who,'score','upravil skóre',`${p[0]?.replace(/-/g,' ')} · ${p[1]?.replace(/-/g,' ')} → ${val??'–'}`);}
+  },[logActivity]);
+  const handleScoreDel=useCallback((keys,who)=>{
+    if(keys==='ALL'){db?.ref('scores').remove();if(who)logActivity(who,'delete','smazal všechna skóre','⚠️ Reset');return;}
+    const u={};keys.forEach(k=>{u[k]=null;});db?.ref('scores').update(u);
+  },[logActivity]);
+  const handleSquads=useCallback((sq,who,detail)=>{db?.ref('squads').set(sq);if(who&&detail)logActivity(who,'squad','nahrál soupisku',detail);},[logActivity]);
+  const handleSettings=useCallback(s=>db?.ref('settings').set(s),[]);
+  const handleReaction=useCallback((scoreKey,emoji)=>{const path=`reactions/${scoreKey}/${fk(myName)}`;if(!emoji)db?.ref(path).remove();else db?.ref(path).set(emoji);},[myName]);
+  const handleComment=useCallback((roundKey,playerKey,text)=>{const path=`comments/${roundKey}/${playerKey}`;if(!text)db?.ref(path).remove();else db?.ref(path).set(text);},[]);
+  const handleDispute=useCallback((scoreKey,comment,who)=>{
+    db?.ref(`disputes/${scoreKey}`).push({who,comment,time:Date.now(),resolved:false});
+    logActivity(who,'dispute','nahlásil podezřelé skóre',`${scoreKey.replace(/__/g,' · ').replace(/-/g,' ')} — "${comment}"`);
+  },[logActivity]);
+  const handleResolveDispute=useCallback((scoreKey,disputeId,who)=>{
+    db?.ref(`disputes/${scoreKey}/${disputeId}`).update({resolved:true,resolvedBy:who,resolvedAt:Date.now()});
+    logActivity(who,'resolve','označil spor jako vyřešený',scoreKey.replace(/__/g,' · ').replace(/-/g,' '));
+  },[logActivity]);
+  const handleJoin=useCallback(name=>{
+    localStorage.setItem('hk26_myname',name);setMyName(name);
+    setPlayers(prev=>{if(prev.includes(name))return prev;const upd=[...prev,name];saveConfig(upd,rounds);logActivity(name,'join','se připojil do skupinky','👋 Nový člen');return upd;});
+  },[rounds,saveConfig,logActivity]);
+
+  if(!ready)return<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}><Spinner sz={34}/><div style={{color:C.muted,fontSize:11,letterSpacing:4}}>PŘIPOJUJI SE…</div></div>;
+  if(!fbOk)return<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}><div style={{...S.card,maxWidth:360,textAlign:'center'}}><div style={{fontSize:36,marginBottom:12}}>🔧</div><div style={{fontSize:16,fontWeight:700}}>Firebase není nakonfigurovaný</div></div></div>;
+  if(!myName)return <Setup existing={players} onJoin={handleJoin}/>;
+
+  const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['squad','👕','Soupisky'],['charts','📈','Grafy'],['history','📋','Historie'],['manage','⚙️','Správa']];
+  const openDisputeCount = Object.values(disputes).reduce((s,cell) => s + Object.values(cell).filter(d=>!d.resolved).length, 0);
+
+  return(
+    <div style={{minHeight:'100vh',background:C.bg0,paddingBottom:72}}>
+      <div style={{position:'fixed',inset:0,pointerEvents:'none',background:'radial-gradient(ellipse 80% 40% at 50% 100%,rgba(29,78,216,.1) 0%,transparent 60%)'}}/>
+      <div style={{position:'sticky',top:0,zIndex:50,background:'rgba(5,10,20,.93)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',borderBottom:`1px solid ${C.border}`,padding:'8px 16px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',maxWidth:860,margin:'0 auto'}}>
+          <div>
+            <div style={{fontSize:9,letterSpacing:4,color:C.cyan,lineHeight:1}}>🏒 TIPSPORT FANTASY</div>
+            <div style={{fontSize:18,fontWeight:900,letterSpacing:2,lineHeight:1.1,background:'linear-gradient(135deg,#fff,#38bdf8)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>MS HOKEJ 2026</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            {settings?.nextMatch&&<div style={{marginBottom:1}}><Countdown nextMatch={settings.nextMatch}/></div>}
+            <div style={{fontSize:8,color:C.muted,letterSpacing:1}}>PŘIHLÁŠEN</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.gold}}>{myName}</div>
+          </div>
+        </div>
+      </div>
+      <div style={{maxWidth:860,margin:'0 auto',padding:'12px 12px 0',position:'relative',zIndex:1}}>
+        {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
+        {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
+        {tab==='squad'&&<Squads players={players} squads={squads} onSquads={(sq,d)=>handleSquads(sq,myName,d)} myName={myName} toast={toast}/>}
+        {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
+        {tab==='history'&&<History activity={activity}/>}
+        {tab==='manage'&&<Manage players={players} rounds={rounds} squads={squads} myName={myName} toast={toast} settings={settings} onSettings={handleSettings} onPlayers={(p,a,d)=>handlePlayers(p,myName,a,d)} onRounds={(r,a,d)=>handleRounds(r,myName,a,d)} onScoreDel={k=>handleScoreDel(k,myName)} onSquads={(sq,d)=>handleSquads(sq,myName,d)}/>}
+      </div>
+      <nav style={{position:'fixed',bottom:0,left:0,right:0,zIndex:50,background:'rgba(5,10,20,.96)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',borderTop:`1px solid ${C.border}`,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
+        <div style={{display:'flex',maxWidth:860,margin:'0 auto'}}>
+          {TABS.map(([k,ic,lb])=>(
+            <button key={k} onClick={()=>setTab(k)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,padding:'7px 0 9px',border:'none',background:'transparent',cursor:'pointer',position:'relative'}}>
+              <div style={{fontSize:16,lineHeight:1,position:'relative'}}>
+                {ic}
+                {k==='table'&&openDisputeCount>0&&<span style={{position:'absolute',top:-4,right:-6,background:C.red,color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:8,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center'}}>{openDisputeCount}</span>}
+              </div>
+              <div style={{fontSize:7,fontWeight:700,letterSpacing:.5,color:tab===k?C.cyan:C.muted}}>{lb.toUpperCase()}</div>
+              {tab===k&&<div style={{position:'absolute',top:0,left:'20%',right:'20%',height:2,borderRadius:1,background:C.cyan}}/>}
+            </button>
+          ))}
+        </div>
+      </nav>
+      {msg&&<Toast msg={msg} done={()=>setMsg(null)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
