@@ -456,7 +456,7 @@ function Leaderboard({players,rounds,scores,settings}){
           </div>
         );
       })}
-      {isLast&&last&&penalty>0&&<div style={{textAlign:'center',fontSize:11,color:C.red,marginTop:4}}>💀 {last.name} dluží {penalty}× pivo skupince!</div>}
+      {last&&penalty>0&&rows.length>1&&<div style={{textAlign:'center',fontSize:11,color:C.red,marginTop:4}}>💀 {last.name} dluží {penalty}× pivo skupince!</div>}
     </div>
   );
 }
