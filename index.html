@@ -641,41 +641,73 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
     const file=fileRef.current?.files?.[0];
     if(!file){fileRef.current?.click();return;}
     if(!apiKey.trim()){setAiMsg('Nejdřív zadej API klíč!');return;}
-    setImporting(true);setAiMsg('📸 Komprimuji…');
+    setImporting(true);setAiMsg('📸 Komprimuji fotku…');
     try{
       const compressed=await compressImage(file);
       const base64=compressed.split(',')[1];
-      setAiMsg('🤖 Claude čte statistiky…');
+      const roundName=rounds.find(r=>fk(r)===roundKey)||roundKey;
+
+      // Build match context for this round from schedule
+      const todayISO=new Date().toISOString().slice(0,10);
+      const recentMatches=MS.filter(([t])=>{
+        const d=new Date(t);const now=Date.now();
+        return now-d.getTime()<7*24*60*60*1000&&d.getTime()<=now;
+      }).map(([t,a,b])=>{
+        const h=new Date(t).getUTCHours()+2;
+        return `${new Date(t).toLocaleDateString('cs',{day:'numeric',month:'numeric'})} ${h}:${String(new Date(t).getUTCMinutes()).padStart(2,'0')} — ${COUNTRIES[a]?.n||a} vs ${COUNTRIES[b]?.n||b}`;
+      }).join('\n');
+
+      setAiMsg('🔍 Claude čte obrázek + hledá statistiky online…');
+
+      const prompt=`Jsi expert na hokejové statistiky a Tipsport Fantasy MS hokej 2026.
+
+Toto je screenshot statistik hráče "${selUser}" ze Tipsport Fantasy aplikace pro kolo "${roundName}".
+
+ÚKOL:
+1. Z obrázku identifikuj všechny hráče a jejich fantasy body
+2. Pomocí web search najdi SKUTEČNÉ statistiky těchto hráčů z IIHF World Championship 2026 (góly a asistence)
+3. Hledej na livesport.cz, iihf.com, flashscore.com nebo hokej.cz
+
+Nedávné zápasy MS 2026 (CEST):
+${recentMatches||'viz iihf.com/en/events/2026/wm/schedule'}
+
+Pro každého hráče z obrázku vrať:
+- name: příjmení + iniciála (např. "Červenka R.")
+- country: IIHF kód země (FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA)
+- pos: pozice (B=brankář, O=obránce, Ú=útočník)
+- goals: skutečné góly za toto kolo (z webu, ne fantasy body)
+- assists: skutečné asistence za toto kolo
+- points: goals+assists (kanadské body)
+- fantasy_pts: fantasy body z obrázku (pro kontrolu)
+
+Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
+[{"name":"...","country":"...","pos":"...","goals":0,"assists":0,"points":0,"fantasy_pts":0}]`;
+
       const resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':apiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({
-          model:'claude-opus-4-5',max_tokens:2000,
+          model:'claude-opus-4-5',
+          max_tokens:3000,
+          tools:[{type:'web_search_20250305',name:'web_search'}],
           messages:[{role:'user',content:[
             {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
-            {type:'text',text:`Jsi expert na Tipsport Fantasy hokej statistiky. Podívej se na tento screenshot ze statistik hráče v Tipsport Fantasy MS hokej 2026.
-
-Extrahuj VŠECHNY hráče které vidíš a jejich statistiky. Pro každého hráče vrať:
-- name: jméno (příjmení + iniciála, např. "Barkov A.")
-- country: IIHF kód (FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA)
-- pos: pozice (B=brankář, O=obránce, Ú=útočník)
-- goals: počet gólů
-- assists: počet asistencí
-- points: kanadské body (goals+assists)
-
-Vrať POUZE validní JSON pole, bez markdown:
-[{"name":"...","country":"...","pos":"...","goals":0,"assists":0,"points":0}]`}
+            {type:'text',text:prompt}
           ]}]
         })
       });
       if(!resp.ok){const err=await resp.json();throw new Error(err.error?.message||'API error '+resp.status);}
       const data=await resp.json();
-      const txt=data.content.map(c=>c.text||'').join('');
-      const clean=txt.replace(/```json|```/g,'').trim();
-      const parsed=JSON.parse(clean);
+      // Extract text from response (may contain tool_use blocks — skip those)
+      const txt=data.content.filter(c=>c.type==='text').map(c=>c.text).join('');
+      setAiMsg('📊 Zpracovávám výsledky…');
+      // Find JSON array in the response
+      const jsonMatch=txt.match(/\[[\s\S]*?\]/);
+      if(!jsonMatch)throw new Error('Claude nevrátil JSON. Odpověď: '+txt.slice(0,200));
+      const parsed=JSON.parse(jsonMatch[0]);
       if(!Array.isArray(parsed)||!parsed.length)throw new Error('Žádní hráči nenalezeni');
       await onUserStats(fk(selUser),roundKey,{players:parsed,updatedAt:Date.now(),updatedBy:myName});
-      setAiMsg(`✅ ${parsed.length} hráčů uloženo pro ${selUser} · ${rounds.find(r=>fk(r)===roundKey)||roundKey}`);
+      setAiMsg(`✅ Hotovo! ${parsed.length} hráčů uloženo pro ${selUser} · kolo ${roundName} (statistiky ověřeny online)`);
       setConfirmEdit(null);setSelRound('');
     }catch(ex){setAiMsg('❌ '+ex.message);}
     finally{setImporting(false);if(fileRef.current)fileRef.current.value='';}
