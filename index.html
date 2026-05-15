@@ -641,91 +641,79 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
     const file=fileRef.current?.files?.[0];
     if(!file){fileRef.current?.click();return;}
     if(!apiKey.trim()){setAiMsg('Nejdřív zadej API klíč!');return;}
-    setImporting(true);setAiMsg('📸 Komprimuji fotku…');
+    setImporting(true);
     try{
       const compressed=await compressImage(file);
       const base64=compressed.split(',')[1];
       const roundName=rounds.find(r=>fk(r)===roundKey)||roundKey;
 
-      // Map round number to exact game day
-      const dayMap={};
-      MS.forEach(([t,a,b])=>{const d=t.slice(0,10);if(!dayMap[d])dayMap[d]=[];dayMap[d].push([t,a,b]);});
-      const sortedDays=Object.keys(dayMap).sort();
-      const roundNum=parseInt(roundKey.replace(/\D/g,''))-1;
-      const roundDay=roundNum>=0&&roundNum<sortedDays.length?sortedDays[roundNum]:null;
-      const roundMatches=roundDay?dayMap[roundDay]:[];
-
-      // Build precise match context for this specific round
-      let matchContext='';
-      let searchHint='';
-      if(roundDay&&roundMatches.length){
-        const dateStr=new Date(roundDay+'T12:00:00Z').toLocaleDateString('cs',{day:'numeric',month:'long',year:'numeric'});
-        matchContext=`KOLO "${roundName}" = ${dateStr} (IIHF World Championship 2026)\nOdehrané zápasy:\n`;
-        matchContext+=roundMatches.map(([t,a,b])=>{
-          const h=new Date(t).getUTCHours()+2;
-          const min=String(new Date(t).getUTCMinutes()).padStart(2,'0');
-          return `  • ${COUNTRIES[a]?.f||''} ${COUNTRIES[a]?.n||a} vs ${COUNTRIES[b]?.n||b} ${COUNTRIES[b]?.f||''} (${h}:${min} CEST, ${roundDay})`;
-        }).join('\n');
-        // Generate example search queries
-        const teams=roundMatches.flatMap(([,a,b])=>[a,b]);
-        searchHint=`\nPříklady vyhledávání:\n`+
-          roundMatches.slice(0,2).map(([,a,b])=>`  • "${COUNTRIES[a]?.n||a} ${COUNTRIES[b]?.n||b} ${roundDay} IIHF goals assists statistics"`).join('\n');
-      }else{
-        matchContext=`Kolo "${roundName}" MS 2026 hokej`;
-      }
-
-      setAiMsg('🔍 Claude čte obrázek + hledá přesné statistiky…');
-
-      const prompt=`Si expert na hokejové statistiky. Postupuj PŘESNĚ podle těchto kroků:
-
-KROK 1: Z obrázku vypiš jméno a příjmení všech hráčů které vidíš na screenshotu.
-
-KROK 2: Pro každého hráče zjisti zemi za kterou hraje (FIN, CZE, CAN, USA, SWE, GER, SUI, AUT, LAT, HUN, GBR, SVK, NOR, SLO, DEN, ITA).
-
-KROK 3: Pro každou zemi zvlášť použij web_search a vyhledej jejich POSLEDNÍ odehraný zápas na IIHF Ice Hockey World Championship 2026.
-Příklad vyhledávání: "Czech Republic last game IIHF World Championship 2026 result"
-nebo: "Česko posledni zapas MS hokej 2026"
-
-KROK 4: Pro každého hráče ze KROKU 1 najdi jeho statistiky (góly a asistence) z tohoto posledního zápasu.
-Příklad vyhledávání: "Jakub Flek Czech Republic Denmark IIHF 2026 goal assist statistics"
-nebo hledej na: iihf.com, livesport.cz, flashscore.com, eliteprospects.com
-
-Po dokončení všech 4 kroků vrať POUZE JSON pole (bez markdown, bez textu před nebo po):
-[
-  {"name":"Flek J.","country":"CZE","pos":"Ú","goals":0,"assists":1,"points":1,"fantasy_pts":12},
-  ...
-]
-
-Pole: name=příjmení+iniciála, country=IIHF kód, pos=B/O/Ú, goals=skutečné góly, assists=skutečné asistence, points=goals+assists, fantasy_pts=body z obrázku`;
-
-      const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      // KROK 1: Rozpoznej hráče z obrázku
+      setAiMsg('👁️ Krok 1/3 — čtu hráče z obrázku…');
+      const step1=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':apiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({
-          model:'claude-opus-4-5',
-          max_tokens:4000,
-          tools:[{type:'web_search_20250305',name:'web_search'}],
+          model:'claude-opus-4-5',max_tokens:1000,
           messages:[{role:'user',content:[
             {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
-            {type:'text',text:prompt}
+            {type:'text',text:'Z tohoto screenshotu ze Tipsport Fantasy hokej vypiš POUZE jména hráčů a jejich fantasy body. Vrať POUZE JSON pole bez markdown:\n[{"name":"Flek J.","pos":"U","country":"CZE","fantasy_pts":12}]\nPozice: B=brankar, O=obrance, U=utocnik. Country: FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA'}
           ]}]
         })
       });
-      if(!resp.ok){const err=await resp.json();throw new Error(err.error?.message||'API error '+resp.status);}
-      const data=await resp.json();
-      const txt=data.content.filter(c=>c.type==='text').map(c=>c.text).join('');
-      setAiMsg('📊 Zpracovávám výsledky…');
-      const jsonMatch=txt.match(/\[[\s\S]*\]/);
-      if(!jsonMatch)throw new Error('Claude nevrátil JSON: '+txt.slice(0,200));
-      const parsed=JSON.parse(jsonMatch[0]);
-      if(!Array.isArray(parsed)||!parsed.length)throw new Error('Žádní hráči nenalezeni');
-      await onUserStats(fk(selUser),roundKey,{players:parsed,updatedAt:Date.now(),updatedBy:myName});
-      setAiMsg(`✅ ${parsed.length} hráčů · kolo ${roundName} · statistiky ověřeny pro ${roundDay||'?'}`);
+      if(!step1.ok){const e=await step1.json();throw new Error(e.error?.message||'Krok 1 selhal');}
+      const d1=await step1.json();
+      const t1=d1.content.filter(c=>c.type==='text').map(c=>c.text).join('');
+      const m1=t1.match(/\[[\s\S]*\]/);
+      if(!m1)throw new Error('Krok 1: neni JSON — '+t1.slice(0,150));
+      const playersFound=JSON.parse(m1[0]);
+      if(!playersFound.length)throw new Error('Zadni hraci v obrazku');
+      const names=playersFound.map(p=>p.name).join(', ');
+      const countries=[...new Set(playersFound.map(p=>p.country).filter(Boolean))];
+      setAiMsg('✅ Krok 1 — nalezeni: '+names);
+
+      // KROK 2: Fetchni statistiky ze Livesport
+      setAiMsg('🔍 Krok 2/3 — stahuji statistiky z Livesport/IIHF…');
+      const step2=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({
+          model:'claude-opus-4-5',max_tokens:3000,
+          tools:[{type:'web_search_20250305',name:'web_search'}],
+          messages:[{role:'user',content:[{type:'text',text:'Potrebuji ziskat PRESNE statistiky (goly a asistence) techto hracu z jejich POSLEDNIHO zapasu na IIHF World Championship 2026:\n\nHraci: '+names+'\nZeme: '+countries.join(', ')+'\n\nPostupuj presne takto:\n1. Otevri https://www.livesport.cz/hokej/svet/ms-2026/vysledky/ a zjisti posledni zapasy pro zeme: '+countries.join(', ')+'\n2. Pro kazdy posledni zapas otevri detail a najdi kdo dal gol a kdo asistoval\n3. Vyhledej konkretne kazdeho hrace ze seznamu: '+names+'\n\nVrat POUZE JSON pole bez markdown:\n[{"name":"Flek J.","goals":0,"assists":1,"points":1}]\n\nPokud hrac nemel gol ani asistenci, dej 0. Nesmis vynadat — chci presna cisla.'}]}]
+        })
+      });
+      if(!step2.ok){const e=await step2.json();throw new Error(e.error?.message||'Krok 2 selhal');}
+      const d2=await step2.json();
+      const t2=d2.content.filter(c=>c.type==='text').map(c=>c.text).join('');
+      const m2=t2.match(/\[[\s\S]*\]/);
+      if(!m2)throw new Error('Krok 2: neni JSON — '+t2.slice(0,200));
+      const statsData=JSON.parse(m2[0]);
+
+      // KROK 3: Spoj data
+      setAiMsg('📊 Krok 3/3 — spojuji data…');
+      const statsMap={};
+      statsData.forEach(s=>{
+        const key=(s.name||'').toLowerCase().replace(/[\s.]/g,'');
+        statsMap[key]={goals:Number(s.goals)||0,assists:Number(s.assists)||0,points:Number(s.points)||((Number(s.goals)||0)+(Number(s.assists)||0))};
+      });
+      const finalPlayers=playersFound.map(pl=>{
+        const key=(pl.name||'').toLowerCase().replace(/[\s.]/g,'');
+        // Try exact match then partial match
+        let st=statsMap[key];
+        if(!st){
+          const partKey=key.slice(0,5);
+          const found=Object.keys(statsMap).find(k=>k.includes(partKey));
+          st=found?statsMap[found]:{goals:0,assists:0,points:0};
+        }
+        return{name:pl.name,country:pl.country,pos:pl.pos==='U'?'U':pl.pos,fantasy_pts:pl.fantasy_pts||0,goals:st.goals,assists:st.assists,points:st.points};
+      });
+
+      await onUserStats(fk(selUser),roundKey,{players:finalPlayers,updatedAt:Date.now(),updatedBy:myName});
+      setAiMsg('✅ Hotovo! '+finalPlayers.length+' hracu ulozeno pro '+selUser+' · kolo '+roundName);
       setConfirmEdit(null);setSelRound('');
     }catch(ex){setAiMsg('❌ '+ex.message);}
     finally{setImporting(false);if(fileRef.current)fileRef.current.value='';}
   }
-
   function triggerImport(roundKey){
     setSelRound(roundKey);setAiMsg('');
     if(importedRounds.includes(roundKey)){setConfirmEdit(roundKey);}
