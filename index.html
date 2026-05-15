@@ -647,48 +647,66 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
       const base64=compressed.split(',')[1];
       const roundName=rounds.find(r=>fk(r)===roundKey)||roundKey;
 
-      // Build match context for this round from schedule
-      const todayISO=new Date().toISOString().slice(0,10);
-      const recentMatches=MS.filter(([t])=>{
-        const d=new Date(t);const now=Date.now();
-        return now-d.getTime()<7*24*60*60*1000&&d.getTime()<=now;
-      }).map(([t,a,b])=>{
-        const h=new Date(t).getUTCHours()+2;
-        return `${new Date(t).toLocaleDateString('cs',{day:'numeric',month:'numeric'})} ${h}:${String(new Date(t).getUTCMinutes()).padStart(2,'0')} — ${COUNTRIES[a]?.n||a} vs ${COUNTRIES[b]?.n||b}`;
-      }).join('\n');
+      // Map round number to exact game day
+      const dayMap={};
+      MS.forEach(([t,a,b])=>{const d=t.slice(0,10);if(!dayMap[d])dayMap[d]=[];dayMap[d].push([t,a,b]);});
+      const sortedDays=Object.keys(dayMap).sort();
+      const roundNum=parseInt(roundKey.replace(/\D/g,''))-1;
+      const roundDay=roundNum>=0&&roundNum<sortedDays.length?sortedDays[roundNum]:null;
+      const roundMatches=roundDay?dayMap[roundDay]:[];
 
-      setAiMsg('🔍 Claude čte obrázek + hledá statistiky online…');
+      // Build precise match context for this specific round
+      let matchContext='';
+      let searchHint='';
+      if(roundDay&&roundMatches.length){
+        const dateStr=new Date(roundDay+'T12:00:00Z').toLocaleDateString('cs',{day:'numeric',month:'long',year:'numeric'});
+        matchContext=`KOLO "${roundName}" = ${dateStr} (IIHF World Championship 2026)\nOdehrané zápasy:\n`;
+        matchContext+=roundMatches.map(([t,a,b])=>{
+          const h=new Date(t).getUTCHours()+2;
+          const min=String(new Date(t).getUTCMinutes()).padStart(2,'0');
+          return `  • ${COUNTRIES[a]?.f||''} ${COUNTRIES[a]?.n||a} vs ${COUNTRIES[b]?.n||b} ${COUNTRIES[b]?.f||''} (${h}:${min} CEST, ${roundDay})`;
+        }).join('\n');
+        // Generate example search queries
+        const teams=roundMatches.flatMap(([,a,b])=>[a,b]);
+        searchHint=`\nPříklady vyhledávání:\n`+
+          roundMatches.slice(0,2).map(([,a,b])=>`  • "${COUNTRIES[a]?.n||a} ${COUNTRIES[b]?.n||b} ${roundDay} IIHF goals assists statistics"`).join('\n');
+      }else{
+        matchContext=`Kolo "${roundName}" MS 2026 hokej`;
+      }
 
-      const prompt=`Jsi expert na hokejové statistiky a Tipsport Fantasy MS hokej 2026.
+      setAiMsg('🔍 Claude čte obrázek + hledá přesné statistiky…');
 
-Toto je screenshot statistik hráče "${selUser}" ze Tipsport Fantasy aplikace pro kolo "${roundName}".
+      const prompt=`Jsi expert na hokejové statistiky. Analyzuj screenshot ze Tipsport Fantasy hokej MS 2026 pro hráče "${selUser}", kolo "${roundName}".
 
-ÚKOL:
-1. Z obrázku identifikuj všechny hráče a jejich fantasy body
-2. Pomocí web search najdi SKUTEČNÉ statistiky těchto hráčů z IIHF World Championship 2026 (góly a asistence)
-3. Hledej na livesport.cz, iihf.com, flashscore.com nebo hokej.cz
+${matchContext}
+${searchHint}
 
-Nedávné zápasy MS 2026 (CEST):
-${recentMatches||'viz iihf.com/en/events/2026/wm/schedule'}
+POSTUP:
+1. Z obrázku přečti jména všech hráčů a jejich Fantasy body (FB)
+2. Pro každého hráče zjisti jeho zemi a ve kterém konkrétním zápase hrál (viz seznam výše)
+3. Použij web_search pro KAŽDÝ zápas zvlášť: hledej "[jméno] [země] vs [soupeř] ${roundDay||'May 2026'} IIHF goal assist"
+   - Například: "Jakub Flek Czech Republic Denmark May 15 2026 IIHF assist"
+   - Hledej na: iihf.com, livesport.cz, flashscore.com, hokej.cz, eliteprospects.com
+4. Zaznamenej přesné góly a asistence z toho konkrétního zápasu
 
-Pro každého hráče z obrázku vrať:
-- name: příjmení + iniciála (např. "Červenka R.")
-- country: IIHF kód země (FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA)
-- pos: pozice (B=brankář, O=obránce, Ú=útočník)
-- goals: skutečné góly za toto kolo (z webu, ne fantasy body)
-- assists: skutečné asistence za toto kolo
-- points: goals+assists (kanadské body)
-- fantasy_pts: fantasy body z obrázku (pro kontrolu)
+Pro každého hráče vrať:
+- name: příjmení + iniciála (např. "Flek J.")
+- country: IIHF kód (FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA)
+- pos: B/O/Ú
+- goals: skutečné góly z tohoto kola (0 pokud nenašel)
+- assists: skutečné asistence z tohoto kola (0 pokud nenašel)
+- points: goals+assists (kanadské body KB)
+- fantasy_pts: fantasy body z obrázku (FB)
 
-Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
-[{"name":"...","country":"...","pos":"...","goals":0,"assists":0,"points":0,"fantasy_pts":0}]`;
+Vrať POUZE JSON pole bez markdown:
+[{"name":"Flek J.","country":"CZE","pos":"Ú","goals":0,"assists":1,"points":1,"fantasy_pts":12}]`;
 
       const resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':apiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({
           model:'claude-opus-4-5',
-          max_tokens:3000,
+          max_tokens:4000,
           tools:[{type:'web_search_20250305',name:'web_search'}],
           messages:[{role:'user',content:[
             {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
@@ -698,16 +716,14 @@ Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
       });
       if(!resp.ok){const err=await resp.json();throw new Error(err.error?.message||'API error '+resp.status);}
       const data=await resp.json();
-      // Extract text from response (may contain tool_use blocks — skip those)
       const txt=data.content.filter(c=>c.type==='text').map(c=>c.text).join('');
       setAiMsg('📊 Zpracovávám výsledky…');
-      // Find JSON array in the response
-      const jsonMatch=txt.match(/\[[\s\S]*?\]/);
-      if(!jsonMatch)throw new Error('Claude nevrátil JSON. Odpověď: '+txt.slice(0,200));
+      const jsonMatch=txt.match(/\[[\s\S]*\]/);
+      if(!jsonMatch)throw new Error('Claude nevrátil JSON: '+txt.slice(0,200));
       const parsed=JSON.parse(jsonMatch[0]);
       if(!Array.isArray(parsed)||!parsed.length)throw new Error('Žádní hráči nenalezeni');
       await onUserStats(fk(selUser),roundKey,{players:parsed,updatedAt:Date.now(),updatedBy:myName});
-      setAiMsg(`✅ Hotovo! ${parsed.length} hráčů uloženo pro ${selUser} · kolo ${roundName} (statistiky ověřeny online)`);
+      setAiMsg(`✅ ${parsed.length} hráčů · kolo ${roundName} · statistiky ověřeny pro ${roundDay||'?'}`);
       setConfirmEdit(null);setSelRound('');
     }catch(ex){setAiMsg('❌ '+ex.message);}
     finally{setImporting(false);if(fileRef.current)fileRef.current.value='';}
@@ -724,11 +740,12 @@ Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
   Object.entries(userRoundData).forEach(([rk,rdata])=>{
     (rdata.players||[]).forEach(pl=>{
       const key=pl.country+'_'+pl.name;
-      if(!playerMap[key])playerMap[key]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0};
+      if(!playerMap[key])playerMap[key]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0,fantasy_pts:0};
       playerMap[key].rounds++;
       playerMap[key].goals+=(pl.goals||0);
       playerMap[key].assists+=(pl.assists||0);
       playerMap[key].points+=(pl.points||0);
+      playerMap[key].fantasy_pts+=(pl.fantasy_pts||0);
     });
   });
   let playerList=Object.values(playerMap);
@@ -736,7 +753,8 @@ Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
   else if(sortBy==='goals')playerList.sort((a,b)=>b.goals-a.goals);
   else if(sortBy==='assists')playerList.sort((a,b)=>b.assists-a.assists);
   else if(sortBy==='rounds')playerList.sort((a,b)=>b.rounds-a.rounds);
-  const totals=playerList.reduce((s,p)=>({goals:s.goals+p.goals,assists:s.assists+p.assists,points:s.points+p.points}),{goals:0,assists:0,points:0});
+  else if(sortBy==='fantasy')playerList.sort((a,b)=>b.fantasy_pts-a.fantasy_pts);
+  const totals=playerList.reduce((s,p)=>({goals:s.goals+p.goals,assists:s.assists+p.assists,points:s.points+p.points,fantasy_pts:s.fantasy_pts+(p.fantasy_pts||0)}),{goals:0,assists:0,points:0,fantasy_pts:0});
 
   return(
     <div>
@@ -841,7 +859,7 @@ Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
 
       {/* Sort */}
       <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>
-        {[['points','⭐ Body'],['goals','⚽ Góly'],['assists','🎯 Asistence'],['rounds','🔄 Kola']].map(([k,l])=>(
+        {[['points','⭐ KB'],['fantasy','🎮 FB'],['goals','⚽ Góly'],['assists','🎯 Asistence'],['rounds','🔄 Kola']].map(([k,l])=>(
           <button key={k} onClick={()=>setSortBy(k)} style={{padding:'5px 12px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(sortBy===k)}}>
             {l}{sortBy===k?' ↓':''}
           </button>
@@ -858,7 +876,7 @@ Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
       ):(
         <div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:12}}>
-            {[['⭐',totals.points,'Bodů',C.gold],['⚽',totals.goals,'Gólů','#4ade80'],['🎯',totals.assists,'Asistencí','#38bdf8'],['👥',playerList.length,'Hráčů',C.purple]].map(([ic,val,lbl,col])=>(
+            {[['⭐',totals.points,'KB',C.gold],['🎮',totals.fantasy_pts,'FB','#818cf8'],['⚽',totals.goals,'Góly','#4ade80'],['🎯',totals.assists,'Asistence','#38bdf8']].map(([ic,val,lbl,col])=>(
               <div key={lbl} style={{...S.card,textAlign:'center',padding:'10px 6px',border:`1px solid ${col}33`}}>
                 <div style={{fontSize:16}}>{ic}</div>
                 <div style={{fontSize:22,fontWeight:900,color:col}}>{val}</div>
@@ -867,26 +885,32 @@ Vrať POUZE validní JSON pole, nic jiného, bez markdown backticks:
             ))}
           </div>
           <div style={{...S.card,padding:0,overflow:'hidden'}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 32px 32px 38px',padding:'8px 10px',background:'rgba(255,255,255,.05)',borderBottom:`1px solid ${C.border}`}}>
-              {[['HRÁČ',''],['P',''],['KOLA','rounds'],['G','goals'],['A','assists'],['B','points']].map(([lbl,key])=>(
-                <div key={lbl} onClick={key?()=>setSortBy(key):undefined} style={{fontSize:9,fontWeight:700,color:sortBy===key?'#fff':key==='rounds'?C.gold:key==='goals'?'#4ade80':key==='assists'?'#38bdf8':key==='points'?C.gold:C.muted,textAlign:key?'center':'left',cursor:key?'pointer':'default',letterSpacing:.5,textDecoration:sortBy===key?'underline':'none'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 30px 30px 38px 42px',padding:'8px 10px',background:'rgba(255,255,255,.05)',borderBottom:`1px solid ${C.border}`}}>
+              {[['HRÁČ',''],['P',''],['KOLA','rounds'],['G','goals'],['A','assists'],['KB','points'],['FB','fantasy']].map(([lbl,key])=>(
+                <div key={lbl} onClick={key?()=>setSortBy(key):undefined} style={{fontSize:9,fontWeight:700,
+                  color:sortBy===key?'#fff':key==='rounds'?C.gold:key==='goals'?'#4ade80':key==='assists'?'#38bdf8':key==='points'?C.gold:key==='fantasy'?'#818cf8':C.muted,
+                  textAlign:key?'center':'left',cursor:key?'pointer':'default',letterSpacing:.5,textDecoration:sortBy===key?'underline':'none'}}>
                   {lbl}{sortBy===key?' ↓':''}
                 </div>
               ))}
             </div>
             {playerList.map((pl,i)=>(
-              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 32px 32px 38px',padding:'8px 10px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.015)',alignItems:'center'}}>
+              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 30px 30px 38px 42px',padding:'8px 10px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.015)',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
                   <span style={{fontSize:14}}>{COUNTRIES[pl.country]?.f||'🌍'}</span>
                   <div><div style={{fontWeight:700,fontSize:13,lineHeight:1.2}}>{pl.name}</div><div style={{fontSize:9,color:C.muted}}>{COUNTRIES[pl.country]?.n||pl.country}</div></div>
                 </div>
                 <div style={{textAlign:'center',fontSize:10,color:C.muted,fontWeight:700}}>{pl.pos||'—'}</div>
-                <div style={{textAlign:'center',fontSize:14,fontWeight:700,color:C.gold}}>{pl.rounds}</div>
-                <div style={{textAlign:'center',fontSize:15,fontWeight:800,color:'#4ade80'}}>{pl.goals}</div>
-                <div style={{textAlign:'center',fontSize:15,fontWeight:800,color:'#38bdf8'}}>{pl.assists}</div>
-                <div style={{textAlign:'center',fontSize:17,fontWeight:900,color:pl.points>0?C.gold:C.muted}}>{pl.points}</div>
+                <div style={{textAlign:'center',fontSize:13,fontWeight:700,color:C.gold}}>{pl.rounds}</div>
+                <div style={{textAlign:'center',fontSize:14,fontWeight:800,color:'#4ade80'}}>{pl.goals}</div>
+                <div style={{textAlign:'center',fontSize:14,fontWeight:800,color:'#38bdf8'}}>{pl.assists}</div>
+                <div style={{textAlign:'center',fontSize:15,fontWeight:900,color:pl.points>0?C.gold:C.muted}}>{pl.points}</div>
+                <div style={{textAlign:'center',fontSize:13,fontWeight:700,color:'#818cf8'}}>{pl.fantasy_pts||0}</div>
               </div>
             ))}
+            <div style={{padding:'7px 10px',display:'flex',gap:10,fontSize:9,color:C.muted,flexWrap:'wrap'}}>
+              <span>P=pozice</span><span style={{color:C.gold}}>KOLA=počet kol v sestavě</span><span style={{color:'#4ade80'}}>G=góly</span><span style={{color:'#38bdf8'}}>A=asistence</span><span style={{color:C.gold}}>KB=kanadské body</span><span style={{color:'#818cf8'}}>FB=fantasy body</span>
+            </div>
           </div>
         </div>
       )}
