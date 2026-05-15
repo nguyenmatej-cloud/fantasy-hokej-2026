@@ -70,6 +70,17 @@ const MS=[
   ["2026-05-26T14:20:00Z","SVK","SWE"],["2026-05-26T14:20:00Z","USA","AUT"],
   ["2026-05-26T18:20:00Z","SUI","FIN"],["2026-05-26T18:20:00Z","CZE","CAN"],
 ];
+
+// Known match results: keyed "YYYY-MM-DD_teamA_teamB" → {h: homeScore, a: awayScore}
+const RESULTS_DB = {
+  "2026-05-15_SWE_CAN":{h:3,a:5}, "2026-05-15_FIN_GER":{h:3,a:1},
+  "2026-05-15_USA_SUI":{h:1,a:3}, "2026-05-15_DEN_CZE":{h:1,a:4},
+};
+function getResult(utcISO, teamA, teamB, fbResults){
+  const d=utcISO.slice(0,10);
+  const key=d+'_'+teamA+'_'+teamB;
+  return fbResults?.[key] || RESULTS_DB[key] || null;
+}
 const GAME_DURATION_MS=3*60*60*1000; // ~3 hours
 function matchStatus(utcISO){const now=Date.now();const t=new Date(utcISO).getTime();if(now<t)return'upcoming';if(now<t+GAME_DURATION_MS)return'live';return'done';}
 function matchStartedFor(country){const now=Date.now();return MS.some(([t,a,b])=>(a===country||b===country)&&now>=new Date(t).getTime());}
@@ -155,54 +166,50 @@ function Countdown({nextMatch}){const [txt,setTxt]=useState('');useEffect(()=>{c
 /* ── MATCH DAY STRIP ─────────────────────────────────
    Shows today's matches above squad builder, live = green
 ────────────────────────────────────────────────────── */
-function MatchDayStrip({selectedDate}){
+function MatchDayStrip({selectedDate,matchResults,onMatchResult,isAdmin}){
   const [now,setNow]=useState(Date.now());
+  const [editKey,setEditKey]=useState(null);const [editH,setEditH]=useState('');const [editA,setEditA]=useState('');
   useEffect(()=>{const i=setInterval(()=>setNow(Date.now()),30000);return()=>clearInterval(i);},[]);
-
-  // Get matches for selected date (or today)
   const targetDate=selectedDate||new Date().toISOString().slice(0,10);
   const dayMatches=MS.filter(([t])=>t.startsWith(targetDate));
-  if(!dayMatches.length)return null;
-
-  // Group by time slot
+  if(!dayMatches.length)return <div style={{fontSize:11,color:C.muted,textAlign:'center',padding:8}}>Tento den se nehraje</div>;
   const timeGroups={};
-  dayMatches.forEach(([t,a,b])=>{
-    const timeStr=t.slice(11,16);
-    if(!timeGroups[timeStr])timeGroups[timeStr]=[];
-    timeGroups[timeStr].push([t,a,b]);
-  });
-
+  dayMatches.forEach(([t,a,b])=>{const ts=t.slice(11,16);if(!timeGroups[ts])timeGroups[ts]=[];timeGroups[ts].push([t,a,b]);});
   return(
-    <div style={{marginBottom:12}}>
+    <div>
       {Object.entries(timeGroups).sort().map(([timeUTC,games])=>{
-        // Convert UTC to CEST (+2)
-        const h=parseInt(timeUTC.slice(0,2))+2;
-        const cestTime=`${h}:${timeUTC.slice(3,5)}`;
+        const h=parseInt(timeUTC.slice(0,2))+2;const cestTime=h+':'+timeUTC.slice(3,5);
         return games.map(([t,a,b])=>{
-          const st=matchStatus(t);
-          const isLive=st==='live';
-          const isDone=st==='done';
-          const fa=COUNTRIES[a]?.f||'';const fb=COUNTRIES[b]?.f||'';
+          const st=matchStatus(t);const isLive=st==='live';const isDone=st==='done';
+          const fa=COUNTRIES[a]?.f||'';const fb_=COUNTRIES[b]?.f||'';
           const na=COUNTRIES[a]?.n||a;const nb=COUNTRIES[b]?.n||b;
+          const result=getResult(t,a,b,matchResults);
+          const key=t.slice(0,10)+'_'+a+'_'+b;
+          const isEditing=editKey===key;
           return(
-            <div key={`${t}-${a}-${b}`} style={{
-              display:'flex',alignItems:'center',gap:8,padding:'7px 10px',
-              borderRadius:10,marginBottom:6,
-              background:isLive?'rgba(34,197,94,.12)':isDone?'rgba(255,255,255,.02)':'rgba(255,255,255,.04)',
-              border:isLive?'1px solid rgba(34,197,94,.4)':isDone?`1px solid ${C.border}`:`1px solid rgba(56,189,248,.15)`,
-              animation:isLive?'livePulse 2s ease-in-out infinite':'none',
-            }}>
-              {isLive&&<div style={{flexShrink:0,background:'#22c55e',color:'#fff',borderRadius:6,padding:'2px 6px',fontSize:8,fontWeight:900,letterSpacing:1,animation:'blink 1s ease-in-out infinite'}}>LIVE</div>}
-              {!isLive&&<div style={{flexShrink:0,fontSize:11,fontWeight:700,color:isDone?C.muted:C.cyan,minWidth:34}}>{cestTime}</div>}
-              <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
-                <span style={{fontSize:18}}>{fa}</span>
-                <span style={{fontSize:11,fontWeight:800,color:isDone?C.muted:C.text}}>{na}</span>
-                <span style={{fontSize:10,color:C.faint}}>vs</span>
-                <span style={{fontSize:11,fontWeight:800,color:isDone?C.muted:C.text}}>{nb}</span>
-                <span style={{fontSize:18}}>{fb}</span>
+            <div key={key} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',borderRadius:10,marginBottom:6,
+              background:isLive?'rgba(34,197,94,.12)':isDone?'rgba(255,255,255,.03)':'rgba(255,255,255,.04)',
+              border:isLive?'1px solid rgba(34,197,94,.4)':isDone&&result?'1px solid rgba(56,189,248,.2)':`1px solid ${C.border}`,
+              animation:isLive?'livePulse 2s ease-in-out infinite':'none'}}>
+              {isLive&&<div style={{flexShrink:0,background:'#22c55e',color:'#fff',borderRadius:6,padding:'2px 6px',fontSize:8,fontWeight:900,animation:'blink 1s ease-in-out infinite'}}>LIVE</div>}
+              {!isLive&&<div style={{flexShrink:0,fontSize:10,fontWeight:700,color:isDone?C.muted:C.cyan,minWidth:34}}>{cestTime}</div>}
+              <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+                <span style={{fontSize:16}}>{fa}</span>
+                <span style={{fontSize:11,fontWeight:800,color:isDone?C.text:C.text,whiteSpace:'nowrap'}}>{na}</span>
+                {result
+                  ?<span style={{fontSize:15,fontWeight:900,color:C.cyan,padding:'0 4px',background:'rgba(56,189,248,.1)',borderRadius:6}}>{result.h} : {result.a}</span>
+                  :<span style={{fontSize:10,color:C.faint,padding:'0 4px'}}>vs</span>}
+                <span style={{fontSize:11,fontWeight:800,color:isDone?C.text:C.text,whiteSpace:'nowrap'}}>{nb}</span>
+                <span style={{fontSize:16}}>{fb_}</span>
               </div>
-              {isDone&&<div style={{flexShrink:0,fontSize:9,color:C.muted}}>✓</div>}
-              {!isLive&&!isDone&&<div style={{flexShrink:0,fontSize:9,color:C.faint}}>–</div>}
+              {isDone&&!result&&isAdmin&&!isEditing&&<button onClick={()=>{setEditKey(key);setEditH('');setEditA('');}} style={{flexShrink:0,background:'rgba(56,189,248,.1)',border:'1px solid rgba(56,189,248,.3)',borderRadius:6,color:C.cyan,fontSize:9,fontWeight:700,padding:'2px 6px',cursor:'pointer',fontFamily:'inherit'}}>+ skóre</button>}
+              {isEditing&&<div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0}}>
+                <input type="number" value={editH} onChange={e=>setEditH(e.target.value)} placeholder="0" style={{width:32,textAlign:'center',background:'rgba(255,255,255,.1)',border:`1px solid ${C.border}`,borderRadius:4,color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:900,padding:2,outline:'none'}}/>
+                <span style={{color:C.muted}}>:</span>
+                <input type="number" value={editA} onChange={e=>setEditA(e.target.value)} placeholder="0" style={{width:32,textAlign:'center',background:'rgba(255,255,255,.1)',border:`1px solid ${C.border}`,borderRadius:4,color:'#fff',fontFamily:'inherit',fontSize:13,fontWeight:900,padding:2,outline:'none'}}/>
+                <button onClick={()=>{if(editH!==''&&editA!==''){onMatchResult&&onMatchResult(key,{h:parseInt(editH),a:parseInt(editA)});}setEditKey(null);}} style={{background:C.blue,border:'none',borderRadius:4,color:'#fff',fontSize:9,fontWeight:900,padding:'2px 6px',cursor:'pointer',fontFamily:'inherit'}}>✓</button>
+                <button onClick={()=>setEditKey(null)} style={{background:'rgba(255,255,255,.06)',border:'none',borderRadius:4,color:C.muted,fontSize:9,padding:'2px 6px',cursor:'pointer',fontFamily:'inherit'}}>✕</button>
+              </div>}
             </div>
           );
         });
@@ -253,6 +260,12 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players}){
   const viewSquad=viewPlayer===myName?mySquad:(viewSquadData?{...emptySquad(),...viewSquadData}:null);
   const capitalName=(sq)=>{if(!sq?.captain)return null;for(const s of[...SLOTS,...SUB_SLOTS]){if(sq[s]&&sq[s].id===sq.captain)return sq[s].name;}return null;};
   const todayISO=new Date().toISOString().slice(0,10);
+  // Map round number to its game day
+  const dayMapSB={};
+  MS.forEach(([t])=>{const d=t.slice(0,10);if(!dayMapSB[d])dayMapSB[d]=true;});
+  const sortedDaysSB=Object.keys(dayMapSB).sort();
+  const roundNumSB=parseInt(rk.replace(/\D/g,''))-1;
+  const roundDaySB=roundNumSB>=0&&roundNumSB<sortedDaysSB.length?sortedDaysSB[roundNumSB]:todayISO;
   const allGroupMembers=players||[];
   if(!rounds.length)return(<div style={{textAlign:"center",padding:60,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🏒</div>Přidej kola ve Správě</div>);
   return(
@@ -260,12 +273,18 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players}){
       <div style={{marginBottom:12}}>
         <span style={S.lbl}>KOLO</span>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {rounds.map(r=><button key={r} onClick={()=>{setSelRound(r);setViewPlayer(myName);}} style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",border:"none",fontFamily:"inherit",fontSize:12,fontWeight:700,...S.btn(selRound===r)}}>{r}</button>)}
+          {rounds.map((r,ri)=>{
+            const rkk=fk(r);const rkNum=parseInt(rkk.replace(/\D/g,''))-1;
+            const rDay=rkNum>=0&&rkNum<sortedDaysSB.length?sortedDaysSB[rkNum]:null;
+            const rDate=rDay?new Date(rDay+'T12:00:00Z').toLocaleDateString('cs',{day:'numeric',month:'numeric'}):null;
+            return(<button key={r} onClick={()=>{setSelRound(r);setViewPlayer(myName);}} style={{padding:"6px 12px",borderRadius:20,cursor:"pointer",border:"none",fontFamily:"inherit",fontSize:11,fontWeight:700,...S.btn(selRound===r)}}>
+              {r}{rDate?<span style={{fontSize:9,opacity:.7,marginLeft:3}}>({rDate})</span>:''}
+            </button>);})}
         </div>
       </div>
       <div style={{...S.card,marginBottom:12,padding:"10px 12px",border:"1px solid rgba(56,189,248,.15)"}}>
         <span style={S.lbl}>ZÁPASY DNES</span>
-        <MatchDayStrip selectedDate={todayISO}/>
+        <MatchDayStrip selectedDate={roundDaySB} matchResults={matchResults} onMatchResult={onMatchResult} isAdmin={isAdmin}/>
       </div>
       {allGroupMembers.length>1&&(
         <div style={{marginBottom:12}}>
@@ -292,7 +311,7 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players}){
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {SLOTS.map(s=>{const pl=mySquad[s];if(!pl)return null;const isC=mySquad.captain===pl.id;return(
                   <button key={s} onClick={()=>setCaptain(pl.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800,background:isC?"linear-gradient(135deg,#b45309,#fbbf24)":"rgba(255,255,255,.06)",color:isC?"#fff":C.text}}>
-                    {isC?"👑 ":""}{COUNTRIES[pl.country]?.f} {pl.name}
+                    {isC?"👑 ":""}{COUNTRIES[pl.country]?.f} {pl.country} {pl.name}
                   </button>);})}
               </div>
               {mySquad.captain&&<div style={{fontSize:10,color:C.muted,marginTop:6}}>Kapitán: {capitalName(mySquad)}</div>}
@@ -316,8 +335,8 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players}){
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Hledat hráče…" autoFocus style={{...S.input,marginBottom:8,fontSize:13}}/>
             <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:10,paddingBottom:4}}>
               <button onClick={()=>setFilterC("")} style={{flexShrink:0,padding:"4px 10px",borderRadius:16,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,background:filterC===""?C.blue:"rgba(255,255,255,.06)",color:filterC===""?"#fff":C.muted,fontWeight:700}}>Vše</button>
-              {Object.entries(COUNTRIES).map(([code,{f}])=>(
-                <button key={code} onClick={()=>setFilterC(filterC===code?"":code)} style={{flexShrink:0,padding:"4px 8px",borderRadius:16,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,background:filterC===code?C.blue:"rgba(255,255,255,.06)"}}>{f}</button>
+              {Object.entries(COUNTRIES).map(([code,{f,n}])=>(
+                <button key={code} onClick={()=>setFilterC(filterC===code?"":code)} style={{flexShrink:0,padding:"4px 8px",borderRadius:16,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,background:filterC===code?C.blue:"rgba(255,255,255,.06)",color:filterC===code?"#fff":C.muted}}>{f} {code}</button>
               ))}
             </div>
             <div style={{overflowY:"auto",flex:1}}>
@@ -326,7 +345,7 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players}){
                 const id=country+"_"+name;
                 return(<div key={id} onClick={()=>setSlot(pickSlot,{id,name,country,pos})} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 8px",borderRadius:10,cursor:"pointer",borderBottom:"1px solid "+C.border}}>
                   <span style={{fontSize:20}}>{COUNTRIES[country]?.f}</span>
-                  <div style={{flex:1}}><div style={{fontWeight:800,fontSize:14}}>{name}</div><div style={{fontSize:10,color:C.muted}}>{COUNTRIES[country]?.n} · {pos==="B"?"Brankář":pos==="O"?"Obránce":"Útočník"}</div></div>
+                  <div style={{flex:1}}><div style={{fontWeight:800,fontSize:14}}>{name}</div><div style={{fontSize:10,color:C.muted}}>{COUNTRIES[country]?.f} {country} · {pos==="B"?"Brankář":pos==="O"?"Obránce":"Útočník"}</div></div>
                   <div style={{fontSize:11,color:C.cyan,fontWeight:700}}>+</div>
                 </div>);
               })}
@@ -882,7 +901,7 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
             {playerList.map((pl,i)=>(
               <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 30px 30px 38px 42px',padding:'8px 10px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.015)',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:14}}>{COUNTRIES[pl.country]?.f||'🌍'}</span>
+                  <span style={{fontSize:13}}>{COUNTRIES[pl.country]?.f||''} {pl.country}</span>
                   <div><div style={{fontWeight:700,fontSize:13,lineHeight:1.2}}>{pl.name}</div><div style={{fontSize:9,color:C.muted}}>{COUNTRIES[pl.country]?.n||pl.country}</div></div>
                 </div>
                 <div style={{textAlign:'center',fontSize:10,color:C.muted,fontWeight:700}}>{pl.pos||'—'}</div>
@@ -967,6 +986,7 @@ function App(){
   const [scores,setScores]=useState({});const [squads,setSquads]=useState({});
   const [squadBuilds,setSquadBuilds]=useState({});
   const [userStats,setUserStats]=useState({});
+  const [matchResults,setMatchResults]=useState({});
   const [activity,setActivity]=useState({});const [reactions,setReactions]=useState({});
   const [comments,setComments]=useState({});const [settings,setSettingsState]=useState({});
   const [disputes,setDisputes]=useState({});
@@ -977,7 +997,7 @@ function App(){
 
   useEffect(()=>{
     if(!db){setFbOk(false);setReady(true);return;}
-    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,sb:false,ps:false};
+    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,sb:false,ps:false,mr:false};
     const check=()=>{if(Object.values(done).every(Boolean))setReady(true);};
     const refs=[
       [db.ref('config'),s=>{const d=s.val()||{};setPlayers(d.players||[]);setRounds(d.rounds||[]);done.cfg=true;check();},()=>{setFbOk(false);done.cfg=true;check();}],
@@ -990,6 +1010,7 @@ function App(){
       [db.ref('disputes'),s=>{setDisputes(s.val()||{});done.dp=true;check();},()=>{done.dp=true;check();}],
       [db.ref('squad_builds'),s=>{setSquadBuilds(s.val()||{});done.sb=true;check();},()=>{done.sb=true;check();}],
       [db.ref('user_stats'),s=>{setUserStats(s.val()||{});done.ps=true;check();},()=>{done.ps=true;check();}],
+      [db.ref('match_results'),s=>{setMatchResults(s.val()||{});done.mr=true;check();},()=>{done.mr=true;check();}],
     ];
     refs.forEach(([ref,cb,err])=>ref.on('value',cb,err));
     return()=>refs.forEach(([ref])=>ref.off());
@@ -1034,7 +1055,7 @@ function App(){
       <div style={{maxWidth:860,margin:'0 auto',padding:'12px 12px 0',position:'relative',zIndex:1}}>
         {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
         {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
-        {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave} players={players}/>}
+        {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave} players={players} matchResults={matchResults} isAdmin={ADMINS.includes(myName)} onMatchResult={(k,v)=>db?.ref('match_results/'+k).set(v)}/>}
         {tab==='stats'&&<Statistics players={players} rounds={rounds} userStats={userStats} onUserStats={handleUserStats} myName={myName}/>}
         {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
         {tab==='history'&&<History activity={activity}/>}
