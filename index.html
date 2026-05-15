@@ -48,6 +48,26 @@ const { useState, useEffect, useRef, useCallback } = React;
 let db = null;
 try { firebase.initializeApp(FIREBASE_CONFIG); db = firebase.database(); } catch(e) {}
 
+const ADMINS = ['Peham','Tonynator','Kdojemichal','Matěj','MatjNg'];
+
+async function compressImage(file) {
+  return new Promise(res => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 900;
+      const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      res(canvas.toDataURL('image/jpeg', 0.72));
+    };
+    img.src = url;
+  });
+}
+
 const fk  = s => String(s).replace(/[.#$[\]/]/g, '-');
 const sk  = (p, r) => `${fk(p)}__${fk(r)}`;
 const b64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
@@ -303,7 +323,7 @@ function Table({ players, rounds, scores, onScore, reactions, onReaction, commen
                           {edit === key
                             ? <input autoFocus type="number" value={val} onChange={e => setVal(e.target.value)} onBlur={commit} onKeyDown={e => { if(e.key==='Enter') commit(); if(e.key==='Escape') setEdit(null); }} style={{ width:58, textAlign:'center', background:'rgba(59,130,246,.3)', border:`2px solid ${C.cyan}`, borderRadius:8, color:'#fff', fontFamily:'inherit', fontSize:15, fontWeight:800, padding:5, outline:'none' }}/>
                             : <div>
-                                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:3 }}>
+                                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
                                   {isMyRow
                                     ? <button onClick={() => { setEdit(key); setVal(v ?? ''); }} style={{ minWidth:42, padding:'5px 6px', borderRadius:8, cursor:'pointer',
                                         background: dCount>0?'rgba(251,146,60,.15)':v!==null?'rgba(59,130,246,.2)':'rgba(255,255,255,.03)',
@@ -318,18 +338,18 @@ function Table({ players, rounds, scores, onScore, reactions, onReaction, commen
                                         {v !== null ? v : <span style={{ fontSize:11 }}>🔒</span>}
                                       </div>
                                   }
-                                  {/* ⚠️ report button — only on others' scores */}
+                                  {/* ⚠️ report button — below score, always visible on others' rows */}
                                   {!isMyRow && v !== null && (
                                     <button onClick={()=>{ setReportCell(reportCell===key?null:key); setReportVal(''); }}
-                                      style={{ width:18, height:18, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900,
-                                        background: dCount>0?'rgba(251,146,60,.3)':'rgba(255,255,255,.06)',
-                                        color: dCount>0?C.orange:C.faint }}>
-                                      {dCount>0?dCount:'!'}
+                                      style={{ padding:'2px 7px', borderRadius:6, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:900,
+                                        background: dCount>0?'rgba(251,146,60,.3)':'rgba(255,255,255,.08)',
+                                        color: dCount>0?C.orange:'#64748b' }}>
+                                      {dCount>0 ? `⚠️${dCount}` : '!'}
                                     </button>
                                   )}
                                   {/* dispute indicator on own row */}
                                   {isMyRow && dCount>0 && (
-                                    <span style={{ fontSize:9, background:'rgba(251,146,60,.25)', color:C.orange, borderRadius:'50%', width:16, height:16, display:'inline-flex', alignItems:'center', justifyContent:'center', fontWeight:900 }}>{dCount}</span>
+                                    <span style={{ fontSize:9, background:'rgba(251,146,60,.25)', color:C.orange, borderRadius:6, padding:'1px 5px', fontWeight:900 }}>⚠️{dCount}</span>
                                   )}
                                 </div>
                                 {v !== null && (
@@ -589,10 +609,219 @@ function Squads({ players, squads, onSquads, myName, toast }) {
   );
 }
 
+// ── SQUAD IMPORT ─────────────────────────────────────────────
+function SquadImport({ myName, rounds, squadImports, squadRounds, onImport, onPublish, toast }) {
+  const [selRound, setSelRound] = useState(rounds[rounds.length-1] || '');
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  const fileRef = useRef();
+  const isAdmin = ADMINS.includes(myName);
+
+  useEffect(() => { if (rounds.length) setSelRound(rounds[rounds.length-1]); }, [rounds]);
+
+  const rk = fk(selRound);
+  const published = squadRounds[rk]?.published || false;
+  const myImport = squadImports[rk]?.[fk(myName)];
+  const allImports = squadImports[rk] || {};
+  const uploadedCount = Object.keys(allImports).length;
+  const totalPlayers = rounds.length > 0 ? uploadedCount : 0;
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploading(true);
+    try {
+      const compressed = await compressImage(file);
+      setPreview(compressed);
+      await onImport(rk, fk(myName), compressed);
+      toast('✓ Squad nahrán — čeká na zveřejnění');
+    } catch(ex) { toast('Chyba: ' + ex.message); }
+    finally { setUploading(false); if(fileRef.current) fileRef.current.value=''; }
+  }
+
+  async function handlePublish() {
+    await onPublish(rk, myName);
+    setConfirmPublish(false);
+    toast('🏒 Kolo zveřejněno — všichni vidí sestavy!');
+  }
+
+  return (
+    <div>
+      {/* Header banner */}
+      <div style={{ background:'linear-gradient(135deg,rgba(139,92,246,.2),rgba(79,70,229,.15))', border:'1px solid rgba(139,92,246,.4)', borderRadius:14, padding:'14px 16px', marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+          <div style={{ fontSize:24 }}>🔒</div>
+          <div>
+            <div style={{ fontWeight:900, fontSize:16, color:'#a78bfa' }}>TAJNÉ SESTAVY</div>
+            <div style={{ fontSize:11, color:'#7c3aed', letterSpacing:1 }}>SQUAD IMPORT — PŘED KOLEM</div>
+          </div>
+        </div>
+        <div style={{ fontSize:12, color:'#c4b5fd', lineHeight:1.6 }}>
+          Každý nahraje svůj squad tajně. <strong style={{ color:'#a78bfa' }}>Nikdo nevidí čí squad</strong> — ani admini — dokud admin nestiskne „Zveřejnit kolo". Pak se všechny sestavy odhalí najednou.
+        </div>
+      </div>
+
+      {/* Round selector */}
+      {rounds.length > 0 && (
+        <div style={{ marginBottom:14 }}>
+          <span style={S.lbl}>KOLO</span>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {rounds.map(r => (
+              <button key={r} onClick={() => { setSelRound(r); setPreview(null); setConfirmPublish(false); }}
+                style={{ padding:'7px 14px', borderRadius:20, cursor:'pointer', border:'none', fontFamily:'inherit', fontSize:12, fontWeight:700,
+                  ...S.btn(selRound===r, '#7c3aed') }}>
+                {r} {squadRounds[fk(r)]?.published ? '✅' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {rounds.length === 0 && <p style={{ textAlign:'center', padding:40, color:C.muted }}>Přidej kola ve Správě</p>}
+
+      {selRound && (
+        <>
+          {/* Status bar */}
+          <div style={{ ...S.card, marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between',
+            border: published ? '1px solid rgba(74,222,128,.35)' : '1px solid rgba(139,92,246,.25)',
+            background: published ? 'rgba(74,222,128,.06)' : 'rgba(139,92,246,.06)' }}>
+            <div>
+              <div style={{ fontSize:9, letterSpacing:3, color: published ? C.green : '#a78bfa', marginBottom:2 }}>
+                {published ? '✅ ZVEŘEJNĚNO' : '🔒 SKRYTO'}
+              </div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{selRound}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
+                {uploadedCount} {uploadedCount === 1 ? 'hráč nahrál' : uploadedCount < 5 ? 'hráči nahráli' : 'hráčů nahrálo'} squad
+                {!published && <span style={{ color:'#7c3aed' }}> · sestavy skryté</span>}
+              </div>
+            </div>
+            {/* Progress dots */}
+            <div style={{ textAlign:'right' }}>
+              <div style={{ fontSize:24, fontWeight:900, color: published ? C.green : '#a78bfa' }}>{uploadedCount}</div>
+              <div style={{ fontSize:9, color:C.muted }}>nahráno</div>
+            </div>
+          </div>
+
+          {/* My upload section */}
+          <div style={{ ...S.card, marginBottom:14 }}>
+            <span style={S.lbl}>MŮJ SQUAD — {myName.toUpperCase()}</span>
+            {myImport ? (
+              <div>
+                <div style={{ position:'relative', marginBottom:10 }}>
+                  <img src={preview || myImport.imageBase64} alt="Můj squad"
+                    style={{ width:'100%', borderRadius:10, border:'1px solid rgba(139,92,246,.3)', display:'block' }}/>
+                  <div style={{ position:'absolute', top:8, right:8, background:'rgba(74,222,128,.85)', color:'#fff', borderRadius:16, padding:'3px 10px', fontSize:11, fontWeight:800 }}>✓ Nahráno</div>
+                </div>
+                <label style={{ display:'block', border:`1px dashed ${C.border}`, borderRadius:10, padding:'10px', textAlign:'center', cursor:'pointer', background:C.bg3 }}>
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:'none' }}/>
+                  <span style={{ fontSize:12, color:C.muted }}>📸 Nahrát znovu (přepíše)</span>
+                </label>
+              </div>
+            ) : (
+              <label style={{ display:'block', border:'2px dashed rgba(139,92,246,.4)', borderRadius:12, padding:'28px 16px', textAlign:'center', cursor:'pointer', background:'rgba(139,92,246,.05)' }}>
+                <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:'none' }}/>
+                {uploading ? (
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
+                    <Spinner/><span style={{ fontSize:13, color:'#a78bfa', fontWeight:700 }}>Nahrávám…</span>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize:36, marginBottom:8 }}>📸</div>
+                    <div style={{ fontSize:14, color:'#a78bfa', fontWeight:700 }}>Klepni a vyber screenshot</div>
+                    <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>Fotka soupisky z Tipsport Fantasy</div>
+                    <div style={{ fontSize:10, color:'#4c1d95', marginTop:6, fontWeight:700 }}>🔒 Ostatní ji neuvidí dokud admin nezveřejní kolo</div>
+                  </div>
+                )}
+              </label>
+            )}
+          </div>
+
+          {/* Published — show all squads */}
+          {published && (
+            <div>
+              <span style={S.lbl}>SESTAVY VŠECH — {selRound.toUpperCase()}</span>
+              {Object.entries(allImports).map(([playerKey, data]) => (
+                <div key={playerKey} style={{ ...S.card, marginBottom:12, padding:0, overflow:'hidden' }}>
+                  <div style={{ padding:'10px 14px', background:'rgba(139,92,246,.15)', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <div style={{ fontWeight:800, fontSize:15 }}>{playerKey.replace(/-/g,' ')}</div>
+                    <div style={{ fontSize:10, color:C.muted }}>{new Date(data.uploadedAt).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+                  </div>
+                  <img src={data.imageBase64} alt={playerKey} style={{ width:'100%', display:'block' }}/>
+                </div>
+              ))}
+              {uploadedCount === 0 && <p style={{ textAlign:'center', padding:30, color:C.muted }}>Nikdo nenahrál squad pro toto kolo</p>}
+            </div>
+          )}
+
+          {/* Not published — mystery view */}
+          {!published && uploadedCount > 0 && (
+            <div style={{ ...S.card, border:'1px solid rgba(139,92,246,.2)', background:'rgba(139,92,246,.04)' }}>
+              <div style={{ fontSize:10, letterSpacing:3, color:'#a78bfa', marginBottom:10 }}>KDO UŽ NAHRÁL ({uploadedCount})</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                {Object.keys(allImports).map(pk => (
+                  <div key={pk} style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(139,92,246,.12)', border:'1px solid rgba(139,92,246,.25)', borderRadius:20, padding:'5px 12px' }}>
+                    <span style={{ fontSize:14 }}>✅</span>
+                    <span style={{ fontSize:13, fontWeight:700 }}>{pk.replace(/-/g,' ')}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:10, color:'#4c1d95', marginTop:10, textAlign:'center' }}>
+                🔒 Fotky jsou skryté — odhalí se po zveřejnění adminem
+              </div>
+            </div>
+          )}
+
+          {/* Admin publish button */}
+          {isAdmin && !published && (
+            <div style={{ marginTop:14 }}>
+              {!confirmPublish ? (
+                <button onClick={() => setConfirmPublish(true)}
+                  style={{ width:'100%', padding:14, border:'none', borderRadius:12, cursor:'pointer', fontFamily:'inherit', fontSize:15, fontWeight:900, letterSpacing:1,
+                    background:'linear-gradient(135deg,#7c3aed,#4f46e5)', color:'#fff', boxShadow:'0 4px 20px rgba(124,58,237,.4)' }}>
+                  🏒 ZVEŘEJNIT KOLO — {selRound.toUpperCase()}
+                </button>
+              ) : (
+                <div style={{ ...S.card, border:'1px solid rgba(124,58,237,.4)', background:'rgba(124,58,237,.1)' }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#a78bfa', marginBottom:8, textAlign:'center' }}>
+                    Opravdu zveřejnit sestavy pro „{selRound}"?
+                  </div>
+                  <div style={{ fontSize:12, color:C.muted, marginBottom:12, textAlign:'center' }}>
+                    Všechny nahrané fotky se najednou zobrazí všem členům skupinky. Toto nelze vrátit.
+                  </div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={handlePublish}
+                      style={{ flex:1, padding:12, border:'none', borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontSize:14, fontWeight:900,
+                        background:'linear-gradient(135deg,#7c3aed,#4f46e5)', color:'#fff' }}>
+                      ✅ ANO, ZVEŘEJNIT
+                    </button>
+                    <button onClick={() => setConfirmPublish(false)}
+                      style={{ flex:1, padding:12, background:C.bg3, border:`1px solid ${C.border}`, color:C.muted, borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontWeight:700 }}>
+                      Zrušit
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div style={{ fontSize:10, color:'#4c1d95', textAlign:'center', marginTop:8 }}>
+                Admini: {ADMINS.join(', ')}
+              </div>
+            </div>
+          )}
+
+          {isAdmin && published && (
+            <div style={{ textAlign:'center', padding:'12px 0', fontSize:11, color:C.green }}>
+              ✅ Kolo zveřejnil {squadRounds[rk]?.publishedBy} · {squadRounds[rk]?.publishedAt ? new Date(squadRounds[rk].publishedAt).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'}) : ''}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── HISTORY ──────────────────────────────────────────────────
 function History({ activity }) {
   const entries = Object.entries(activity).map(([id,v]) => ({id,...v})).sort((a,b) => b.time-a.time).slice(0,100);
-  const icons = { score:{ic:'📊',col:C.cyan}, player:{ic:'👤',col:C.green}, round:{ic:'🏒',col:C.orange}, squad:{ic:'📸',col:C.purple}, delete:{ic:'🗑',col:C.red}, join:{ic:'🆕',col:C.gold}, dispute:{ic:'⚠️',col:C.orange}, resolve:{ic:'✅',col:C.green} };
+  const icons = { score:{ic:'📊',col:C.cyan}, player:{ic:'👤',col:C.green}, round:{ic:'🏒',col:C.orange}, squad:{ic:'📸',col:C.purple}, delete:{ic:'🗑',col:C.red}, join:{ic:'🆕',col:C.gold}, dispute:{ic:'⚠️',col:C.orange}, resolve:{ic:'✅',col:C.green}, squadimport:{ic:'🔒',col:'#a78bfa'}, publish:{ic:'🔓',col:'#7c3aed'} };
   const fmt = ts => { const d=new Date(ts), diff=Math.floor((new Date()-d)/1000); if(diff<60) return'před '+diff+'s'; if(diff<3600) return'před '+Math.floor(diff/60)+'min'; if(diff<86400) return'před '+Math.floor(diff/3600)+'h'; return d.toLocaleDateString('cs',{day:'numeric',month:'numeric'})+' '+d.toLocaleTimeString('cs',{hour:'2-digit',minute:'2-digit'}); };
   if (!entries.length) return <div style={{ textAlign:'center', padding:60, color:C.muted }}><div style={{ fontSize:32, marginBottom:8 }}>📋</div>Zatím žádná aktivita</div>;
   return (
@@ -673,12 +902,14 @@ function App() {
   const [activity,setActivity]=useState({}); const [reactions,setReactions]=useState({});
   const [comments,setComments]=useState({}); const [settings,setSettingsState]=useState({});
   const [disputes,setDisputes]=useState({});
+  const [squadImports,setSquadImports]=useState({});
+  const [squadRounds,setSquadRounds]=useState({});
   const [tab,setTab]=useState('leaderboard'); const [msg,setMsg]=useState(null);
   const toast=m=>setMsg(m);
 
   useEffect(()=>{
     if(!db){setFbOk(false);setReady(true);return;}
-    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false};
+    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,si:false,sr:false};
     const check=()=>{if(Object.values(done).every(Boolean))setReady(true);};
     const refs=[
       [db.ref('config'),s=>{const d=s.val()||{};setPlayers(d.players||[]);setRounds(d.rounds||[]);done.cfg=true;check();},()=>{setFbOk(false);done.cfg=true;check();}],
@@ -689,6 +920,8 @@ function App() {
       [db.ref('comments'),s=>{setComments(s.val()||{});done.cm=true;check();},()=>{done.cm=true;check();}],
       [db.ref('settings'),s=>{setSettingsState(s.val()||{});done.st=true;check();},()=>{done.st=true;check();}],
       [db.ref('disputes'),s=>{setDisputes(s.val()||{});done.dp=true;check();},()=>{done.dp=true;check();}],
+      [db.ref('squad_imports'),s=>{setSquadImports(s.val()||{});done.si=true;check();},()=>{done.si=true;check();}],
+      [db.ref('squad_rounds'),s=>{setSquadRounds(s.val()||{});done.sr=true;check();},()=>{done.sr=true;check();}],
     ];
     refs.forEach(([ref,cb,err])=>ref.on('value',cb,err));
     return()=>refs.forEach(([ref])=>ref.off());
@@ -718,6 +951,14 @@ function App() {
     db?.ref(`disputes/${scoreKey}/${disputeId}`).update({resolved:true,resolvedBy:who,resolvedAt:Date.now()});
     logActivity(who,'resolve','označil spor jako vyřešený',scoreKey.replace(/__/g,' · ').replace(/-/g,' '));
   },[logActivity]);
+  const handleSquadImport=useCallback(async(roundKey,playerKey,imageBase64)=>{
+    await db?.ref(`squad_imports/${roundKey}/${playerKey}`).set({imageBase64,uploadedAt:Date.now()});
+    logActivity(myName,'squadimport','nahrál tajný squad','🔒 Skryto do zveřejnění');
+  },[myName,logActivity]);
+  const handlePublishRound=useCallback(async(roundKey,who)=>{
+    await db?.ref(`squad_rounds/${roundKey}`).set({published:true,publishedBy:who,publishedAt:Date.now()});
+    logActivity(who,'publish',`zveřejnil sestavy`,`Kolo: ${roundKey.replace(/-/g,' ')}`);
+  },[logActivity]);
   const handleJoin=useCallback(name=>{
     localStorage.setItem('hk26_myname',name);setMyName(name);
     setPlayers(prev=>{if(prev.includes(name))return prev;const upd=[...prev,name];saveConfig(upd,rounds);logActivity(name,'join','se připojil do skupinky','👋 Nový člen');return upd;});
@@ -727,8 +968,9 @@ function App() {
   if(!fbOk)return<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}><div style={{...S.card,maxWidth:360,textAlign:'center'}}><div style={{fontSize:36,marginBottom:12}}>🔧</div><div style={{fontSize:16,fontWeight:700}}>Firebase není nakonfigurovaný</div></div></div>;
   if(!myName)return <Setup existing={players} onJoin={handleJoin}/>;
 
-  const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['squad','👕','Soupisky'],['charts','📈','Grafy'],['history','📋','Historie'],['manage','⚙️','Správa']];
+  const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🔒','Sestavy'],['squad','👕','Soupisky'],['charts','📈','Grafy'],['history','📋','Historie'],['manage','⚙️','Správa']];
   const openDisputeCount = Object.values(disputes).reduce((s,cell) => s + Object.values(cell).filter(d=>!d.resolved).length, 0);
+  const pendingSquads = rounds.length > 0 ? Object.keys(squadImports[fk(rounds[rounds.length-1])]||{}).length : 0;
 
   return(
     <div style={{minHeight:'100vh',background:C.bg0,paddingBottom:72}}>
@@ -749,6 +991,7 @@ function App() {
       <div style={{maxWidth:860,margin:'0 auto',padding:'12px 12px 0',position:'relative',zIndex:1}}>
         {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
         {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
+        {tab==='sestavy'&&<SquadImport myName={myName} rounds={rounds} squadImports={squadImports} squadRounds={squadRounds} onImport={handleSquadImport} onPublish={handlePublishRound} toast={toast}/>}
         {tab==='squad'&&<Squads players={players} squads={squads} onSquads={(sq,d)=>handleSquads(sq,myName,d)} myName={myName} toast={toast}/>}
         {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
         {tab==='history'&&<History activity={activity}/>}
@@ -761,6 +1004,7 @@ function App() {
               <div style={{fontSize:16,lineHeight:1,position:'relative'}}>
                 {ic}
                 {k==='table'&&openDisputeCount>0&&<span style={{position:'absolute',top:-4,right:-6,background:C.red,color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:8,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center'}}>{openDisputeCount}</span>}
+                {k==='sestavy'&&pendingSquads>0&&<span style={{position:'absolute',top:-4,right:-6,background:'#7c3aed',color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:8,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center'}}>{pendingSquads}</span>}
               </div>
               <div style={{fontSize:7,fontWeight:700,letterSpacing:.5,color:tab===k?C.cyan:C.muted}}>{lb.toUpperCase()}</div>
               {tab===k&&<div style={{position:'absolute',top:0,left:'20%',right:'20%',height:2,borderRadius:1,background:C.cyan}}/>}
