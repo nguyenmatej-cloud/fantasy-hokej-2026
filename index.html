@@ -676,30 +676,27 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
 
       setAiMsg('🔍 Claude čte obrázek + hledá přesné statistiky…');
 
-      const prompt=`Jsi expert na hokejové statistiky. Analyzuj screenshot ze Tipsport Fantasy hokej MS 2026 pro hráče "${selUser}", kolo "${roundName}".
+      const prompt=`Si expert na hokejové statistiky. Postupuj PŘESNĚ podle těchto kroků:
 
-${matchContext}
-${searchHint}
+KROK 1: Z obrázku vypiš jméno a příjmení všech hráčů které vidíš na screenshotu.
 
-POSTUP:
-1. Z obrázku přečti jména všech hráčů a jejich Fantasy body (FB)
-2. Pro každého hráče zjisti jeho zemi a ve kterém konkrétním zápase hrál (viz seznam výše)
-3. Použij web_search pro KAŽDÝ zápas zvlášť: hledej "[jméno] [země] vs [soupeř] ${roundDay||'May 2026'} IIHF goal assist"
-   - Například: "Jakub Flek Czech Republic Denmark May 15 2026 IIHF assist"
-   - Hledej na: iihf.com, livesport.cz, flashscore.com, hokej.cz, eliteprospects.com
-4. Zaznamenej přesné góly a asistence z toho konkrétního zápasu
+KROK 2: Pro každého hráče zjisti zemi za kterou hraje (FIN, CZE, CAN, USA, SWE, GER, SUI, AUT, LAT, HUN, GBR, SVK, NOR, SLO, DEN, ITA).
 
-Pro každého hráče vrať:
-- name: příjmení + iniciála (např. "Flek J.")
-- country: IIHF kód (FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA)
-- pos: B/O/Ú
-- goals: skutečné góly z tohoto kola (0 pokud nenašel)
-- assists: skutečné asistence z tohoto kola (0 pokud nenašel)
-- points: goals+assists (kanadské body KB)
-- fantasy_pts: fantasy body z obrázku (FB)
+KROK 3: Pro každou zemi zvlášť použij web_search a vyhledej jejich POSLEDNÍ odehraný zápas na IIHF Ice Hockey World Championship 2026.
+Příklad vyhledávání: "Czech Republic last game IIHF World Championship 2026 result"
+nebo: "Česko posledni zapas MS hokej 2026"
 
-Vrať POUZE JSON pole bez markdown:
-[{"name":"Flek J.","country":"CZE","pos":"Ú","goals":0,"assists":1,"points":1,"fantasy_pts":12}]`;
+KROK 4: Pro každého hráče ze KROKU 1 najdi jeho statistiky (góly a asistence) z tohoto posledního zápasu.
+Příklad vyhledávání: "Jakub Flek Czech Republic Denmark IIHF 2026 goal assist statistics"
+nebo hledej na: iihf.com, livesport.cz, flashscore.com, eliteprospects.com
+
+Po dokončení všech 4 kroků vrať POUZE JSON pole (bez markdown, bez textu před nebo po):
+[
+  {"name":"Flek J.","country":"CZE","pos":"Ú","goals":0,"assists":1,"points":1,"fantasy_pts":12},
+  ...
+]
+
+Pole: name=příjmení+iniciála, country=IIHF kód, pos=B/O/Ú, goals=skutečné góly, assists=skutečné asistence, points=goals+assists, fantasy_pts=body z obrázku`;
 
       const resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
