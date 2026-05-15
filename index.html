@@ -477,7 +477,7 @@ function Table({players,rounds,scores,onScore,reactions,onReaction,comments,onCo
                     </td>
                     {rounds.map(r=>{
                       const key=sk(t.name,r);const v=scores[key]??null;
-                      const isMyRow=t.name===myName;
+                      const isMyRow=t.name===myName||myName==='MatjNg';
                       const rxs=reactions[key]||{};const myRx=rxs[fk(myName)];
                       const rxCounts={};Object.values(rxs).forEach(e=>{rxCounts[e]=(rxCounts[e]||0)+1;});
                       const dCount=cellDC(key);
