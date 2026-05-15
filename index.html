@@ -4,7 +4,6 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
   <meta name="theme-color" content="#050a14"/>
-  <meta name="apple-mobile-web-app-capable" content="yes"/>
   <title>🏒 Fantasy MS Hokej 2026</title>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -15,8 +14,7 @@
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{background:#050a14;color:#e2e8f0;font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased;overflow-x:hidden}
     #root{min-height:100vh}
-    ::-webkit-scrollbar{width:3px;height:3px}
-    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+    ::-webkit-scrollbar{width:3px;height:3px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
     input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
     input[type=number]{-moz-appearance:textfield}
     input::placeholder,textarea::placeholder{color:#1e3a5f}
@@ -24,6 +22,7 @@
     @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
     @keyframes pulse{0%,100%{opacity:.7}50%{opacity:1}}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}
+    @keyframes livePulse{0%,100%{background:rgba(34,197,94,.15)}50%{background:rgba(34,197,94,.28)}}
   </style>
 </head>
 <body>
@@ -34,882 +33,701 @@
   </div>
 </div>
 <script type="text/babel">
-const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyBHGFktLJRfdATysVbMPKM-KuKXqp9sLjU",
-  authDomain:        "fantasy-ms-hokej-2026.firebaseapp.com",
-  databaseURL:       "https://fantasy-ms-hokej-2026-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:         "fantasy-ms-hokej-2026",
-  storageBucket:     "fantasy-ms-hokej-2026.firebasestorage.app",
-  messagingSenderId: "1043999174905",
-  appId:             "1:1043999174905:web:e4f96b816fbde98777f228",
-};
+const FIREBASE_CONFIG={apiKey:"AIzaSyBHGFktLJRfdATysVbMPKM-KuKXqp9sLjU",authDomain:"fantasy-ms-hokej-2026.firebaseapp.com",databaseURL:"https://fantasy-ms-hokej-2026-default-rtdb.europe-west1.firebasedatabase.app",projectId:"fantasy-ms-hokej-2026",storageBucket:"fantasy-ms-hokej-2026.firebasestorage.app",messagingSenderId:"1043999174905",appId:"1:1043999174905:web:e4f96b816fbde98777f228"};
+const{useState,useEffect,useRef,useCallback,useMemo}=React;
+let db=null;try{firebase.initializeApp(FIREBASE_CONFIG);db=firebase.database();}catch(e){}
+const ADMINS=['Peham','Tonynator','Kdojemichal','Matěj','MatjNg'];
+const COUNTRIES={FIN:{f:'🇫🇮',n:'Finsko'},LAT:{f:'🇱🇻',n:'Lotyšsko'},HUN:{f:'🇭🇺',n:'Maďarsko'},GER:{f:'🇩🇪',n:'Německo'},AUT:{f:'🇦🇹',n:'Rakousko'},SUI:{f:'🇨🇭',n:'Švýcarsko'},USA:{f:'🇺🇸',n:'USA'},GBR:{f:'🇬🇧',n:'V. Británie'},CAN:{f:'🇨🇦',n:'Kanada'},SWE:{f:'🇸🇪',n:'Švédsko'},CZE:{f:'🇨🇿',n:'Česko'},DEN:{f:'🇩🇰',n:'Dánsko'},SVK:{f:'🇸🇰',n:'Slovensko'},NOR:{f:'🇳🇴',n:'Norsko'},SLO:{f:'🇸🇮',n:'Slovinsko'},ITA:{f:'🇮🇹',n:'Itálie'}};
 
-const { useState, useEffect, useRef, useCallback } = React;
-let db = null;
-try { firebase.initializeApp(FIREBASE_CONFIG); db = firebase.database(); } catch(e) {}
+// Match schedule [utcISO, team1, team2]
+const MS=[
+  ["2026-05-15T14:20:00Z","SWE","CAN"],["2026-05-15T14:20:00Z","FIN","GER"],
+  ["2026-05-15T18:20:00Z","USA","SUI"],["2026-05-15T18:20:00Z","DEN","CZE"],
+  ["2026-05-16T10:20:00Z","GBR","AUT"],["2026-05-16T10:20:00Z","SVK","NOR"],
+  ["2026-05-16T14:20:00Z","HUN","FIN"],["2026-05-16T14:20:00Z","CAN","ITA"],
+  ["2026-05-16T18:20:00Z","SUI","LAT"],["2026-05-16T18:20:00Z","SLO","CZE"],
+  ["2026-05-17T10:20:00Z","ITA","SVK"],["2026-05-17T10:20:00Z","GBR","USA"],
+  ["2026-05-17T14:20:00Z","AUT","HUN"],["2026-05-17T14:20:00Z","SWE","DEN"],
+  ["2026-05-17T18:20:00Z","GER","LAT"],["2026-05-17T18:20:00Z","NOR","SLO"],
+  ["2026-05-18T14:20:00Z","CAN","DEN"],["2026-05-18T14:20:00Z","FIN","USA"],
+  ["2026-05-18T18:20:00Z","GER","SUI"],["2026-05-18T18:20:00Z","CZE","SWE"],
+  ["2026-05-19T14:20:00Z","LAT","AUT"],["2026-05-19T14:20:00Z","ITA","NOR"],
+  ["2026-05-19T18:20:00Z","HUN","GBR"],["2026-05-19T18:20:00Z","SLO","SVK"],
+  ["2026-05-20T14:20:00Z","AUT","SUI"],["2026-05-20T14:20:00Z","CZE","ITA"],
+  ["2026-05-20T18:20:00Z","USA","GER"],["2026-05-20T18:20:00Z","SWE","SLO"],
+  ["2026-05-21T14:20:00Z","NOR","CAN"],["2026-05-21T14:20:00Z","FIN","LAT"],
+  ["2026-05-21T18:20:00Z","SUI","GBR"],["2026-05-21T18:20:00Z","DEN","SVK"],
+  ["2026-05-22T14:20:00Z","CAN","SLO"],["2026-05-22T14:20:00Z","GER","HUN"],
+  ["2026-05-22T18:20:00Z","FIN","GBR"],["2026-05-22T18:20:00Z","ITA","SWE"],
+  ["2026-05-23T10:20:00Z","DEN","SLO"],["2026-05-23T10:20:00Z","USA","LAT"],
+  ["2026-05-23T14:20:00Z","SUI","HUN"],["2026-05-23T14:20:00Z","SVK","CZE"],
+  ["2026-05-23T18:20:00Z","AUT","GER"],["2026-05-23T18:20:00Z","SWE","NOR"],
+  ["2026-05-24T14:20:00Z","DEN","ITA"],["2026-05-24T14:20:00Z","GBR","LAT"],
+  ["2026-05-24T18:20:00Z","FIN","AUT"],["2026-05-24T18:20:00Z","CAN","SVK"],
+  ["2026-05-25T14:20:00Z","USA","HUN"],["2026-05-25T14:20:00Z","CZE","NOR"],
+  ["2026-05-25T18:20:00Z","GER","GBR"],["2026-05-25T18:20:00Z","SLO","ITA"],
+  ["2026-05-26T10:20:00Z","NOR","DEN"],["2026-05-26T10:20:00Z","HUN","LAT"],
+  ["2026-05-26T14:20:00Z","SVK","SWE"],["2026-05-26T14:20:00Z","USA","AUT"],
+  ["2026-05-26T18:20:00Z","SUI","FIN"],["2026-05-26T18:20:00Z","CZE","CAN"],
+];
+const GAME_DURATION_MS=3*60*60*1000; // ~3 hours
+function matchStatus(utcISO){const now=Date.now();const t=new Date(utcISO).getTime();if(now<t)return'upcoming';if(now<t+GAME_DURATION_MS)return'live';return'done';}
+function matchStartedFor(country){const now=Date.now();return MS.some(([t,a,b])=>(a===country||b===country)&&now>=new Date(t).getTime());}
+function todayMatches(){
+  const now=new Date();
+  const todayUTC=now.toISOString().slice(0,10);
+  return MS.filter(([t])=>t.startsWith(todayUTC));
+}
 
-const ADMINS = ['Peham','Tonynator','Kdojemichal','Matěj','MatjNg'];
+// Player DB [name, country, position B/O/Ú]
+const PDB=[
+  ["Annunen J.","FIN","B"],["Korpisalo J.","FIN","B"],["Säteri H.","FIN","B"],
+  ["Heinola V.","FIN","O"],["Jokiharju H.","FIN","O"],["Lehtonen M.","FIN","O"],["Matinpalo N.","FIN","O"],["Määttä O.","FIN","O"],["Saarijärvi V.","FIN","O"],["Seppälä Mi.","FIN","O"],["Vaakanainen U.","FIN","O"],
+  ["Barkov A.","FIN","Ú"],["Björninen H.","FIN","Ú"],["Erholtz E.","FIN","Ú"],["Hämeenaho L.","FIN","Ú"],["Kuokkanen J.","FIN","Ú"],["Lundell A.","FIN","Ú"],["Manninen S.","FIN","Ú"],["Merelä W.","FIN","Ú"],["Mäenalanen S.","FIN","Ú"],["Puistola P.","FIN","Ú"],["Puljujärvi J.","FIN","Ú"],["Päivärinta S.","FIN","Ú"],["Räty A.","FIN","Ú"],["Teräväinen T.","FIN","Ú"],
+  ["Grigals G.","LAT","B"],["Gudļevskis K.","LAT","B"],["Mitens M.","LAT","B"],
+  ["Andzans A.","LAT","O"],["Bergmanis A.","LAT","O"],["Cibuļskis O.","LAT","O"],["Freibergs R.","LAT","O"],["Mamčics R.","LAT","O"],["Tumanovs M.","LAT","O"],["Zīle K.","LAT","O"],["Šmits A.","LAT","O"],
+  ["Andersons T.","LAT","Ú"],["Balcers R.","LAT","Ú"],["Batņa O.","LAT","Ú"],["Buncis F.","LAT","Ú"],["Dzierkals M.","LAT","Ú"],["Egle H.","LAT","Ú"],["Krastenbergs R.","LAT","Ú"],["Lapinskis O.","LAT","Ú"],["Murnieks O.","LAT","Ú"],["Prohorenkovs G.","LAT","Ú"],["Skrastins K.","LAT","Ú"],["Smirnovs D.","LAT","Ú"],["Vilmanis S.","LAT","Ú"],["Zabusovs P.","LAT","Ú"],
+  ["Bálizs B.","HUN","B"],["Hegedüs L.","HUN","B"],["Vay Á.","HUN","B"],
+  ["Csollák M.","HUN","O"],["Garát Z.","HUN","O"],["Hadobás Z.","HUN","O"],["Horváth Mi.","HUN","O"],["Kiss R.","HUN","O"],["Ortenszky T.","HUN","O"],["Stipsicz B.","HUN","O"],["Tornyai G.","HUN","O"],
+  ["Bartalis I.","HUN","Ú"],["Erdély C.","HUN","Ú"],["Galló V.","HUN","Ú"],["Hári J.","HUN","Ú"],["Horváth B.","HUN","Ú"],["Nagy K.","HUN","Ú"],["Nemes M.","HUN","Ú"],["Papp K.","HUN","Ú"],["Ravasz C.","HUN","Ú"],["Sofron I.","HUN","Ú"],["Szongoth D.","HUN","Ú"],["Sárpátki R.","HUN","Ú"],["Terbócs I.","HUN","Ú"],["Vincze P.","HUN","Ú"],
+  ["Franzreb M.","GER","B"],["Grubauer P.","GER","B"],["Stettmer J.","GER","B"],
+  ["Gawanke L.","GER","O"],["Hüttl L.","GER","O"],["Mik E.","GER","O"],["Seider M.","GER","O"],["Sinn P.","GER","O"],["Wagner F.","GER","O"],["Weber M.","GER","O"],["Wissmann K.","GER","O"],
+  ["Bokk D.","GER","Ú"],["Dove-McFalls S.","GER","Ú"],["Eder A.","GER","Ú"],["Ehl A.","GER","Ú"],["Fischbuch D.","GER","Ú"],["Kahun D.","GER","Ú"],["Kastner M.","GER","Ú"],["Krämmer N.","GER","Ú"],["Loibl S.","GER","Ú"],["Michaelis M.","GER","Ú"],["Samanski J.","GER","Ú"],["Tiffels F.","GER","Ú"],["Tuomie P.","GER","Ú"],["Wiederer M.","GER","Ú"],
+  ["Kickert D.","AUT","B"],["Tolvanen A.","AUT","B"],["Vorauer F.","AUT","B"],
+  ["Biber G.","AUT","O"],["Hackl D.","AUT","O"],["Maier D.","AUT","O"],["Nickl T.","AUT","O"],["Schnetzer R.","AUT","O"],["Stapelfeldt P.","AUT","O"],["Unterweger C.","AUT","O"],["Wolf B.","AUT","O"],
+  ["Harnisch T.","AUT","Ú"],["Huber Ma.","AUT","Ú"],["Huber P.","AUT","Ú"],["Kolarik L.","AUT","Ú"],["Neubauer H.","AUT","Ú"],["Nissner B.","AUT","Ú"],["Rebernig M.","AUT","Ú"],["Rohrer V.","AUT","Ú"],["Scherzer I.","AUT","Ú"],["Schneider P.","AUT","Ú"],["Schwinger S.","AUT","Ú"],["Thaler L.","AUT","Ú"],["Wallner L.","AUT","Ú"],["Zwerger D.","AUT","Ú"],
+  ["Aeschlimann S.","SUI","B"],["Berra R.","SUI","B"],["Genoni L.","SUI","B"],
+  ["Berni T.","SUI","O"],["Egli D.","SUI","O"],["Josi R.","SUI","O"],["Jung S.","SUI","O"],["Kukan D.","SUI","O"],["Marti C.","SUI","O"],["Moser J.","SUI","O"],
+  ["Andrighetto S.","SUI","Ú"],["Baechler N.","SUI","Ú"],["Bertschy C.","SUI","Ú"],["Biasca A.","SUI","Ú"],["Hischier N.","SUI","Ú"],["Jäger K.","SUI","Ú"],["Knak S.","SUI","Ú"],["Meier T.","SUI","Ú"],["Niederreiter N.","SUI","Ú"],["Riat D.","SUI","Ú"],["Rochette T.","SUI","Ú"],["Suter P.","SUI","Ú"],["Thürkauf C.","SUI","Ú"],
+  ["Commesso D.","USA","B"],["Cooley D.","USA","B"],["Woll J.","USA","B"],
+  ["Borgen W.","USA","O"],["Carlile D.","USA","O"],["Clifton C.","USA","O"],["Faulk J.","USA","O"],["Kaiser W.","USA","O"],["Lindgren R.","USA","O"],["Lohrei M.","USA","O"],["Ufko R.","USA","O"],
+  ["Coronato M.","USA","Ú"],["Cotter P.","USA","Ú"],["Hagens J.","USA","Ú"],["Howard I.","USA","Ú"],["Lafferty S.","USA","Ú"],["Lee R.","USA","Ú"],["Leonard R.","USA","Ú"],["Moore O.","USA","Ú"],["Nelson D.","USA","Ú"],["Novak T.","USA","Ú"],["Olivier M.","USA","Ú"],["Plante M.","USA","Ú"],["Sasson M.","USA","Ú"],["Steeves A.","USA","Ú"],["Tkachuk M.","USA","Ú"],
+  ["Robson M.","GBR","B"],["Bowns B.","GBR","B"],["Brine L.","GBR","B"],
+  ["Brown T.","GBR","O"],["Clements D.","GBR","O"],["Halbert N.","GBR","O"],["Hazeldine J.","GBR","O"],["Jenion B.","GBR","O"],["Richardson M.","GBR","O"],["Steele L.","GBR","O"],["Tetlow J.","GBR","O"],
+  ["Betteridge O.","GBR","Ú"],["Curran J.","GBR","Ú"],["Davies B.","GBR","Ú"],["Dowd R.","GBR","Ú"],["Harewood B.","GBR","Ú"],["Hopkins J.","GBR","Ú"],["Kirk L.","GBR","Ú"],["Lachowicz R.","GBR","Ú"],["Neilson C.","GBR","Ú"],["Neilson L.","GBR","Ú"],["Nordström I.","GBR","Ú"],["Norris S.","GBR","Ú"],["Perlini B.","GBR","Ú"],["Shudra C.","GBR","Ú"],["Waller J.","GBR","Ú"],
+  ["Greaves J.","CAN","B"],["Ivankovic J.","CAN","B"],["Talbot C.","CAN","B"],
+  ["Bouchard E.","CAN","O"],["DeMelo D.","CAN","O"],["Dickinson S.","CAN","O"],["Mateychuk D.","CAN","O"],["Nurse D.","CAN","O"],["Rielly M.","CAN","O"],["Whitecloud Z.","CAN","O"],["Wotherspoon P.","CAN","O"],
+  ["Brown C.","CAN","Ú"],["Celebrini M.","CAN","Ú"],["Cozens D.","CAN","Ú"],["Crosby S.","CAN","Ú"],["Finnie E.","CAN","Ú"],["Holloway D.","CAN","Ú"],["Martone P.","CAN","Ú"],["Mercer D.","CAN","Ú"],["Minten F.","CAN","Ú"],["O'Reilly R.","CAN","Ú"],["Scheifele M.","CAN","Ú"],["Tavares J.","CAN","Ú"],["Thomas R.","CAN","Ú"],["Vilardi G.","CAN","Ú"],
+  ["Hellberg M.","SWE","B"],["Härenstam L.","SWE","B"],["Söderblom A.","SWE","B"],
+  ["Brännström E.","SWE","O"],["Ekholm M.","SWE","O"],["Ekman-Larsson O.","SWE","O"],["Heed T.","SWE","O"],["Johansson A.","SWE","O"],["Larsson J.","SWE","O"],["Persson J.","SWE","O"],["Hägg R.","SWE","O"],
+  ["Asplund R.","SWE","Ú"],["Berglund J.","SWE","Ú"],["Björck V.","SWE","Ú"],["de la Rose J.","SWE","Ú"],["Frondell A.","SWE","Ú"],["Grundström C.","SWE","Ú"],["Heineman E.","SWE","Ú"],["Holmström S.","SWE","Ú"],["Karlsson L.","SWE","Ú"],["Petersson A.","SWE","Ú"],["Raymond L.","SWE","Ú"],["Silfverberg J.","SWE","Ú"],["Stenberg I.","SWE","Ú"],["Sundqvist O.","SWE","Ú"],
+  ["Kořenář J.","CZE","B"],["Kváča P.","CZE","B"],["Pavlát D.","CZE","B"],
+  ["Alscher M.","CZE","O"],["Cibulka T.","CZE","O"],["Galvas T.","CZE","O"],["Hájek L.","CZE","O"],["Hronek F.","CZE","O"],["Kempný M.","CZE","O"],["Ščotka J.","CZE","O"],["Ticháček J.","CZE","O"],
+  ["Beránek O.","CZE","Ú"],["Blümel M.","CZE","Ú"],["Černoch J.","CZE","Ú"],["Červenka R.","CZE","Ú"],["Flek J.","CZE","Ú"],["Chmelař J.","CZE","Ú"],["Kaut M.","CZE","Ú"],["Kovařčík M.","CZE","Ú"],["Kubalík D.","CZE","Ú"],["Mandát J.","CZE","Ú"],["Melovský M.","CZE","Ú"],["Sedlák L.","CZE","Ú"],["Tomášek D.","CZE","Ú"],["Voženílek D.","CZE","Ú"],
+  ["Dichow F.","DEN","B"],["Henriksen N.","DEN","B"],["Søgaard M.","DEN","B"],
+  ["Aabo J.","DEN","O"],["Bruggisser P.","DEN","O"],["Jensen M.","DEN","O"],["Koch A.","DEN","O"],["Larsen K.","DEN","O"],["Lauridsen M.","DEN","O"],["Setkov M.","DEN","O"],
+  ["Aagaard M.","DEN","Ú"],["Blichfeld J.","DEN","Ú"],["From M.","DEN","Ú"],["Kjær O.","DEN","Ú"],["Madsen D.","DEN","Ú"],["Olesen N.","DEN","Ú"],["Poulsen M.","DEN","Ú"],["Russell P.","DEN","Ú"],["Scheel F.","DEN","Ú"],["Schmidt-Svejstrup J.","DEN","Ú"],["Schultz P.","DEN","Ú"],["Storm F.","DEN","Ú"],["True A.","DEN","Ú"],["Wejse C.","DEN","Ú"],
+  ["Gajan A.","SVK","B"],["Hlavaj S.","SVK","B"],["Škorvanek S.","SVK","B"],
+  ["Gernát M.","SVK","O"],["Ivan M.","SVK","O"],["Jánošík A.","SVK","O"],["Kmec J.","SVK","O"],["Koch P.","SVK","O"],["Marinčin M.","SVK","O"],["Radivojevič L.","SVK","O"],["Štrbák M.","SVK","O"],
+  ["Buček S.","SVK","Ú"],["Chromiak M.","SVK","Ú"],["Fafrák M.","SVK","Ú"],["Hrehorčák P.","SVK","Ú"],["Mešár F.","SVK","Ú"],["Paulovič M.","SVK","Ú"],["Pospíšil M.","SVK","Ú"],["Roman M.","SVK","Ú"],["Skokan D.","SVK","Ú"],["Sýkora A.","SVK","Ú"],["Šupler J.","SVK","Ú"],
+  ["Arnkværn M.","NOR","B"],["Haukeland H.","NOR","B"],["Normann T.","NOR","B"],
+  ["Hurrod S.","NOR","O"],["Johannesen J.","NOR","O"],["Kopperstad V.","NOR","O"],["Krogdahl M.","NOR","O"],["Kåsastul C.","NOR","O"],["Saxrud-Danielsen A.","NOR","O"],["Solberg S.","NOR","O"],["Østby K.","NOR","O"],
+  ["Bakke Olsen E.","NOR","Ú"],["Elvsveen P.","NOR","Ú"],["Eriksen M.","NOR","Ú"],["Koblar T.","NOR","Ú"],["Martinsen A.","NOR","Ú"],["Olsen T.","NOR","Ú"],["Pettersen M.","NOR","Ú"],["Rønnild M.","NOR","Ú"],["Salsten E.","NOR","Ú"],["Salsten H.","NOR","Ú"],["Steen N.","NOR","Ú"],["Vesterheim P.","NOR","Ú"],["Vikingstad M.","NOR","Ú"],
+  ["Horák L.","SLO","B"],["Kolin L.","SLO","B"],["Us Ž.","SLO","B"],
+  ["Bohinc R.","SLO","O"],["Ćosić J.","SLO","O"],["Crnovič A.","SLO","O"],["Goličič J.","SLO","O"],["Gregorc B.","SLO","O"],["Magovac A.","SLO","O"],["Perčič M.","SLO","O"],["Štebih M.","SLO","O"],
+  ["Beričič M.","SLO","Ú"],["Drozg J.","SLO","Ú"],["Jezovšek Ž.","SLO","Ú"],["Kuralt A.","SLO","Ú"],["Langus N.","SLO","Ú"],["Mahkovec M.","SLO","Ú"],["Maver L.","SLO","Ú"],["Ograjenšek K.","SLO","Ú"],["Sabolič R.","SLO","Ú"],["Simšič N.","SLO","Ú"],["Sitar F.","SLO","Ú"],["Sodja J.","SLO","Ú"],["Tičar R.","SLO","Ú"],["Török M.","SLO","Ú"],
+  ["Belotti F.","ITA","B"],["Morino F.","ITA","B"],["Stauder A.","ITA","B"],
+  ["Costantini M.","ITA","O"],["Frank D.","ITA","O"],["Glira M.","ITA","O"],["Klassen B.","ITA","O"],["Lambacher P.","ITA","O"],["Petan Ž.","ITA","O"],["Pöder T.","ITA","O"],["Trivellato M.","ITA","O"],
+  ["Andergassen L.","ITA","Ú"],["Bazzanella E.","ITA","Ú"],["Brugnoli I.","ITA","Ú"],["Deluca I.","ITA","Ú"],["Gander M.","ITA","Ú"],["Halmo M.","ITA","Ú"],["Insam D.","ITA","Ú"],["Mantinger C.","ITA","Ú"],["Marchetti M.","ITA","Ú"],["Miceli G.","ITA","Ú"],["Miglioranzi S.","ITA","Ú"],["Rosa M.","ITA","Ú"],["Salinitri A.","ITA","Ú"],
+];
 
-async function compressImage(file) {
-  return new Promise(res => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const MAX = 900;
-      const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
-      const canvas = document.createElement('canvas');
-      canvas.width  = Math.round(img.width  * ratio);
-      canvas.height = Math.round(img.height * ratio);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      res(canvas.toDataURL('image/jpeg', 0.72));
-    };
-    img.src = url;
+async function compressImage(file){return new Promise(res=>{const img=new Image();const url=URL.createObjectURL(file);img.onload=()=>{const MAX=900;const ratio=Math.min(MAX/img.width,MAX/img.height,1);const c=document.createElement('canvas');c.width=Math.round(img.width*ratio);c.height=Math.round(img.height*ratio);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',0.72));};img.src=url;});}
+
+/* ── DESIGN TOKENS ─────────────────────────────────── */
+const C={bg0:'#050a14',bg2:'#0d1829',bg3:'#111f35',border:'rgba(30,58,95,.6)',text:'#e2e8f0',muted:'#64748b',faint:'#1e3a5f',cyan:'#38bdf8',blue:'#1d4ed8',gold:'#fbbf24',silver:'#94a3b8',bronze:'#b45309',green:'#4ade80',red:'#f87171',orange:'#fb923c',purple:'#c084fc'};
+const S={card:{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:'12px 14px',marginBottom:8},lbl:{display:'block',fontSize:9,letterSpacing:3,color:C.cyan,marginBottom:8,fontWeight:700},input:{width:'100%',background:'rgba(255,255,255,.04)',border:`1px solid ${C.border}`,borderRadius:10,color:C.text,fontFamily:'inherit',fontSize:14,padding:'10px 12px',outline:'none'},btn:(a,col=C.blue)=>({background:a?`linear-gradient(135deg,${col},${col}99)`:'transparent',border:a?'none':`1px solid ${C.border}`,color:a?'#fff':C.muted,borderRadius:20,padding:'6px 14px',cursor:'pointer',fontFamily:'inherit',fontWeight:700,fontSize:12})};
+const sk=(p,r)=>`${p.replace(/\s+/g,'-').toLowerCase()}__${r.replace(/\s+/g,'-').toLowerCase()}`;
+const fk=s=>s.replace(/\s+/g,'-').toLowerCase();
+const MEDALS=['🥇','🥈','🥉'];
+const EMOJIS=['🔥','❤️','😂','😬','👎'];
+const SLOTS=['F1','F2','F3','D1','D2','G'];
+const SUB_SLOTS=['subF','subD','subG'];
+const SLOT_POS={F1:'Ú',F2:'Ú',F3:'Ú',D1:'O',D2:'O',G:'B',subF:'Ú',subD:'O',subG:'B'};
+const SLOT_LABEL={F1:'Útočník',F2:'Útočník',F3:'Útočník',D1:'Obránce',D2:'Obránce',G:'Brankář',subF:'Útočník',subD:'Obránce',subG:'Brankář'};
+function emptySquad(){return{F1:null,F2:null,F3:null,D1:null,D2:null,G:null,subF:null,subD:null,subG:null,captain:null};}
+function squadComplete(sq){return SLOTS.every(s=>sq[s]!==null);}
+
+/* ── SPINNER ───────────────────────────────────────── */
+function Spinner({sz=20}){return <div style={{width:sz,height:sz,border:`2px solid ${C.border}`,borderTopColor:C.cyan,borderRadius:'50%',animation:'spin .8s linear infinite',flexShrink:0}}/>;}
+function Toast({msg,done}){useEffect(()=>{const t=setTimeout(done,2500);return()=>clearTimeout(t);},[]);return <div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:'rgba(56,189,248,.15)',border:`1px solid ${C.cyan}`,borderRadius:20,padding:'10px 20px',fontSize:13,fontWeight:700,color:C.cyan,zIndex:9999,whiteSpace:'nowrap',backdropFilter:'blur(10px)'}}>{msg}</div>;}
+function Countdown({nextMatch}){const [txt,setTxt]=useState('');useEffect(()=>{const tick=()=>{const d=new Date(nextMatch)-Date.now();if(d<=0){setTxt('Zápas právě probíhá!');return;}const h=Math.floor(d/3600000),m=Math.floor(d%3600000/60000),s=Math.floor(d%60000/1000);setTxt(`${h>0?h+'h ':''} ${m}m ${s}s`);};tick();const i=setInterval(tick,1000);return()=>clearInterval(i);},[nextMatch]);return <div style={{fontSize:10,color:C.cyan,letterSpacing:1}}>⏱ {txt}</div>;}
+
+/* ── MATCH DAY STRIP ─────────────────────────────────
+   Shows today's matches above squad builder, live = green
+────────────────────────────────────────────────────── */
+function MatchDayStrip({selectedDate}){
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{const i=setInterval(()=>setNow(Date.now()),30000);return()=>clearInterval(i);},[]);
+
+  // Get matches for selected date (or today)
+  const targetDate=selectedDate||new Date().toISOString().slice(0,10);
+  const dayMatches=MS.filter(([t])=>t.startsWith(targetDate));
+  if(!dayMatches.length)return null;
+
+  // Group by time slot
+  const timeGroups={};
+  dayMatches.forEach(([t,a,b])=>{
+    const timeStr=t.slice(11,16);
+    if(!timeGroups[timeStr])timeGroups[timeStr]=[];
+    timeGroups[timeStr].push([t,a,b]);
   });
-}
 
-const fk  = s => String(s).replace(/[.#$[\]/]/g, '-');
-const sk  = (p, r) => `${fk(p)}__${fk(r)}`;
-const b64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
-
-async function aiParse(base64, apiKey) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [
-      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-      { type: 'text', text: `Analyzuj Tipsport Fantasy hokej screenshot. Vrať POUZE čistý JSON bez backtick:
-{"totalPoints":0,"players":[{"name":"Příjmení J.","pos":"Ú","goals":0,"assists":0,"pts":0,"fp":0,"captain":false}]}
-Pozice: B=brankář O=obránce Ú=útočník. Chybějící=0.` }
-    ]}] })
-  });
-  const d = await res.json();
-  if (d.error) throw new Error(d.error.message);
-  return JSON.parse(d.content?.map(b => b.text || '').join('').replace(/```json|```/g, '').trim());
-}
-
-const C = {
-  bg0:'#050a14', bg1:'#0b1220', bg2:'#101929', bg3:'#162035',
-  border:'rgba(255,255,255,.07)',
-  text:'#e2e8f0', muted:'#64748b', faint:'#1e293b',
-  blue:'#3b82f6', blueD:'#1d4ed8', cyan:'#38bdf8',
-  gold:'#fbbf24', silver:'#94a3b8', bronze:'#a78452',
-  green:'#4ade80', red:'#f87171', orange:'#fb923c', purple:'#c084fc',
-};
-const POS = {
-  B: { label:'Brankář', color:'#fbbf24', bg:'rgba(251,191,36,.15)' },
-  O: { label:'Obránce', color:'#38bdf8', bg:'rgba(56,189,248,.15)' },
-  Ú: { label:'Útočník', color:'#4ade80', bg:'rgba(74,222,128,.15)' },
-};
-const MEDALS = ['🥇','🥈','🥉'];
-const EMOJIS = ['🔥','❤️','😂','😬','👎'];
-const S = {
-  card: { background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, padding:'14px 16px' },
-  input: { background:C.bg3, border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 13px', color:C.text, fontFamily:'inherit', fontSize:14, outline:'none', width:'100%', display:'block' },
-  lbl: { fontSize:10, letterSpacing:3, color:C.cyan, marginBottom:8, display:'block', fontWeight:700 },
-  btn: (on, col=C.blueD) => ({ border:'none', borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontWeight:700, fontSize:13, padding:'9px 16px', background: on ? `linear-gradient(135deg,${col},${col}cc)` : C.bg3, color: on ? '#fff' : C.muted, boxShadow: on ? `0 2px 12px ${col}55` : 'none' }),
-};
-
-function Spinner({ sz=22 }) { return <div style={{ width:sz, height:sz, border:'2px solid rgba(255,255,255,.07)', borderTop:`2px solid ${C.cyan}`, borderRadius:'50%', animation:'spin .8s linear infinite', flexShrink:0 }}/>; }
-function Toast({ msg, done }) { useEffect(() => { const t = setTimeout(done, 2600); return () => clearTimeout(t); }, []); return <div style={{ position:'fixed', bottom:82, left:'50%', transform:'translateX(-50%)', zIndex:999, background:'linear-gradient(135deg,#064e3b,#065f46)', color:'#6ee7b7', padding:'10px 22px', borderRadius:24, fontSize:13, fontWeight:700, boxShadow:'0 4px 24px rgba(0,0,0,.6)', whiteSpace:'nowrap', border:'1px solid rgba(110,231,183,.2)' }}>{msg}</div>; }
-function Chip({ pos }) { const p = POS[pos] || POS['Ú']; return <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:'50%', background:p.bg, color:p.color, fontSize:10, fontWeight:900, border:`1px solid ${p.color}44`, flexShrink:0 }}>{pos}</span>; }
-
-function Countdown({ nextMatch }) {
-  const [t, setT] = useState('');
-  useEffect(() => {
-    const calc = () => {
-      const diff = new Date(nextMatch) - new Date();
-      if (diff <= 0) { setT('🏒 TEĎKA!'); return; }
-      const d = Math.floor(diff/86400000), h = Math.floor((diff%86400000)/3600000), m = Math.floor((diff%3600000)/60000), s = Math.floor((diff%60000)/1000);
-      setT(d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`);
-    };
-    calc(); const i = setInterval(calc, 1000); return () => clearInterval(i);
-  }, [nextMatch]);
-  return <span style={{ fontWeight:900, color:C.cyan, fontSize:13, animation:'blink 2s ease infinite' }}>{t}</span>;
-}
-
-// ── SETUP ────────────────────────────────────────────────────
-function Setup({ existing, onJoin }) {
-  const [val, setVal] = useState(''); const [err, setErr] = useState('');
-  const go = () => { const n = val.trim(); if (!n) { setErr('Zadej přezdívku'); return; } if (n.length > 24) { setErr('Max 24 znaků'); return; } onJoin(n); };
-  return (
-    <div style={{ minHeight:'100vh', background:C.bg0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'24px 16px' }}>
-      <div style={{ fontSize:10, letterSpacing:5, color:C.cyan, marginBottom:8, animation:'pulse 2s ease infinite' }}>🏒 TIPSPORT FANTASY</div>
-      <h1 style={{ fontSize:'clamp(34px,9vw,54px)', fontWeight:900, letterSpacing:2, margin:'0 0 4px', textAlign:'center', lineHeight:.92, background:'linear-gradient(135deg,#fff 30%,#38bdf8)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>MS HOKEJ<br/>2026</h1>
-      <p style={{ fontSize:11, color:C.muted, letterSpacing:3, marginBottom:36 }}>SKUPINOVÝ TRACKER</p>
-      <div style={{ width:'100%', maxWidth:360 }}>
-        <div style={{ ...S.card, marginBottom:12, border:'1px solid rgba(56,189,248,.2)', background:'rgba(29,78,216,.08)' }}>
-          <span style={S.lbl}>ZADEJ SVOJI PŘEZDÍVKU</span>
-          <input autoFocus value={val} onChange={e => { setVal(e.target.value); setErr(''); }} onKeyDown={e => e.key === 'Enter' && go()} placeholder="např. Tomáš, Kouba…" maxLength={24} style={{ ...S.input, fontSize:18, fontWeight:700, marginBottom:10, textAlign:'center' }}/>
-          {err && <p style={{ fontSize:12, color:C.red, marginBottom:8, textAlign:'center' }}>{err}</p>}
-          <button onClick={go} style={{ width:'100%', padding:14, border:'none', borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontSize:16, fontWeight:900, letterSpacing:2, background:'linear-gradient(135deg,#1d4ed8,#0369a1)', color:'#fff', boxShadow:'0 4px 20px rgba(29,78,216,.45)' }}>VSTOUPIT 🏒</button>
-        </div>
-        {existing.length > 0 && (
-          <div style={S.card}>
-            <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:10 }}>UŽ V APLIKACI ({existing.length})</div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>{existing.map(p => <button key={p} onClick={() => { setVal(p); setErr(''); }} style={{ padding:'5px 12px', borderRadius:20, border:`1px solid ${C.border}`, background:C.bg3, color:C.text, fontFamily:'inherit', fontSize:12, fontWeight:600, cursor:'pointer' }}>{p}</button>)}</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── LEADERBOARD ──────────────────────────────────────────────
-function Leaderboard({ players, rounds, scores, settings }) {
-  const rows = players.map(p => ({ name:p, total:rounds.reduce((s,r) => s + (scores[sk(p,r)] ?? 0), 0) })).sort((a,b) => b.total - a.total);
-  const max = Math.max(...rows.map(r => r.total), 1);
-  const last = rows.length - 1;
-  const topCol = [C.gold, C.silver, C.bronze];
-  const lastRound = rounds[rounds.length-1];
-  const playerKola = lastRound ? players.map(p => ({ name:p, pts:scores[sk(p,lastRound)] ?? 0 })).sort((a,b) => b.pts-a.pts)[0] : null;
-  let bigJump = null;
-  if (rounds.length >= 2) {
-    const prev = rounds[rounds.length-2], cur = rounds[rounds.length-1];
-    const jumps = players.map(p => ({ name:p, jump:(scores[sk(p,cur)]??0)-(scores[sk(p,prev)]??0) })).sort((a,b) => b.jump-a.jump);
-    if (jumps[0]?.jump > 0) bigJump = jumps[0];
-  }
-  if (!rows.length) return <p style={{ textAlign:'center', padding:60, color:C.muted }}>Zatím nikdo — každý si přijde a zadá přezdívku</p>;
-  return (
-    <div>
-      {settings?.nextMatch && (
-        <div style={{ ...S.card, marginBottom:12, background:'rgba(29,78,216,.1)', border:'1px solid rgba(56,189,248,.25)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div><div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:2 }}>PŘÍŠTÍ ZÁPAS/KOLO</div><Countdown nextMatch={settings.nextMatch}/></div>
-          <div style={{ fontSize:28 }}>⏱️</div>
-        </div>
-      )}
-      {(playerKola?.pts > 0 || bigJump) && (
-        <div style={{ display:'grid', gridTemplateColumns: playerKola?.pts>0 && bigJump ? '1fr 1fr' : '1fr', gap:8, marginBottom:12 }}>
-          {playerKola?.pts > 0 && (
-            <div style={{ ...S.card, padding:'10px 14px', border:'1px solid rgba(251,191,36,.25)', background:'rgba(251,191,36,.06)' }}>
-              <div style={{ fontSize:9, letterSpacing:2, color:C.gold, marginBottom:3 }}>🌟 HRÁČ KOLA</div>
-              <div style={{ fontWeight:800, fontSize:15 }}>{playerKola.name}</div>
-              <div style={{ fontSize:12, color:C.muted }}>{lastRound} · <span style={{ color:C.gold, fontWeight:900 }}>{playerKola.pts} b</span></div>
+  return(
+    <div style={{marginBottom:12}}>
+      {Object.entries(timeGroups).sort().map(([timeUTC,games])=>{
+        // Convert UTC to CEST (+2)
+        const h=parseInt(timeUTC.slice(0,2))+2;
+        const cestTime=`${h}:${timeUTC.slice(3,5)}`;
+        return games.map(([t,a,b])=>{
+          const st=matchStatus(t);
+          const isLive=st==='live';
+          const isDone=st==='done';
+          const fa=COUNTRIES[a]?.f||'';const fb=COUNTRIES[b]?.f||'';
+          const na=COUNTRIES[a]?.n||a;const nb=COUNTRIES[b]?.n||b;
+          return(
+            <div key={`${t}-${a}-${b}`} style={{
+              display:'flex',alignItems:'center',gap:8,padding:'7px 10px',
+              borderRadius:10,marginBottom:6,
+              background:isLive?'rgba(34,197,94,.12)':isDone?'rgba(255,255,255,.02)':'rgba(255,255,255,.04)',
+              border:isLive?'1px solid rgba(34,197,94,.4)':isDone?`1px solid ${C.border}`:`1px solid rgba(56,189,248,.15)`,
+              animation:isLive?'livePulse 2s ease-in-out infinite':'none',
+            }}>
+              {isLive&&<div style={{flexShrink:0,background:'#22c55e',color:'#fff',borderRadius:6,padding:'2px 6px',fontSize:8,fontWeight:900,letterSpacing:1,animation:'blink 1s ease-in-out infinite'}}>LIVE</div>}
+              {!isLive&&<div style={{flexShrink:0,fontSize:11,fontWeight:700,color:isDone?C.muted:C.cyan,minWidth:34}}>{cestTime}</div>}
+              <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                <span style={{fontSize:18}}>{fa}</span>
+                <span style={{fontSize:11,fontWeight:800,color:isDone?C.muted:C.text}}>{na}</span>
+                <span style={{fontSize:10,color:C.faint}}>vs</span>
+                <span style={{fontSize:11,fontWeight:800,color:isDone?C.muted:C.text}}>{nb}</span>
+                <span style={{fontSize:18}}>{fb}</span>
+              </div>
+              {isDone&&<div style={{flexShrink:0,fontSize:9,color:C.muted}}>✓</div>}
+              {!isLive&&!isDone&&<div style={{flexShrink:0,fontSize:9,color:C.faint}}>–</div>}
             </div>
-          )}
-          {bigJump && (
-            <div style={{ ...S.card, padding:'10px 14px', border:'1px solid rgba(74,222,128,.25)', background:'rgba(74,222,128,.06)' }}>
-              <div style={{ fontSize:9, letterSpacing:2, color:C.green, marginBottom:3 }}>📈 NEJVĚTŠÍ SKOK</div>
-              <div style={{ fontWeight:800, fontSize:15 }}>{bigJump.name}</div>
-              <div style={{ fontSize:12, color:C.muted }}>+<span style={{ color:C.green, fontWeight:900 }}>{bigJump.jump} b</span> oproti min. kolu</div>
-            </div>
-          )}
-        </div>
-      )}
-      {rows.map((t, i) => {
-        const isLast = i === last && rows.length > 1;
-        const col = topCol[i] || C.cyan;
-        return (
-          <div key={t.name}>
-            <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', marginBottom:isLast?0:7, borderRadius:isLast?'14px 14px 0 0':14,
-              background: isLast ? 'linear-gradient(135deg,rgba(248,113,113,.15),rgba(220,38,38,.08))' : i<3 ? `linear-gradient(135deg,${col}18,${col}06)` : 'rgba(255,255,255,.02)',
-              border: `1px solid ${isLast ? 'rgba(248,113,113,.4)' : i<3 ? col+'33' : C.border}`,
-              animation: `fadeUp .3s ease ${i*.05}s both` }}>
-              <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:isLast?20:i<3?20:13, fontWeight:900, background:isLast?'rgba(248,113,113,.2)':i<3?'transparent':C.bg3, color:isLast?C.red:i<3?col:C.muted, border:isLast?'1px solid rgba(248,113,113,.4)':'none' }}>
-                {isLast ? '💀' : i < 3 ? MEDALS[i] : i+1}
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:17, color:isLast?C.red:C.text, textDecoration:isLast?'line-through':'none' }}>
-                  {t.name}{i===0 && <span style={{ marginLeft:6, fontSize:12 }}>👑</span>}
-                </div>
-                <div style={{ marginTop:5, height:3, background:'rgba(255,255,255,.05)', borderRadius:2, overflow:'hidden' }}>
-                  <div style={{ height:'100%', width:`${(t.total/max)*100}%`, borderRadius:2, background:isLast?'linear-gradient(90deg,#7f1d1d,#ef4444)':i<3?`linear-gradient(90deg,${col}88,${col})`:C.blue, transition:'width .7s ease' }}/>
-                </div>
-              </div>
-              <div style={{ textAlign:'right' }}>
-                <div style={{ fontWeight:900, fontSize:26, lineHeight:1, color:isLast?C.red:i<3?col:C.cyan }}>{t.total}</div>
-                <div style={{ fontSize:9, color:isLast?'rgba(248,113,113,.6)':C.muted, letterSpacing:1 }}>BODŮ</div>
-              </div>
-            </div>
-            {isLast && (
-              <div style={{ background:'linear-gradient(135deg,rgba(127,29,29,.6),rgba(69,10,10,.8))', border:'1px solid rgba(248,113,113,.4)', borderTop:'none', borderRadius:'0 0 14px 14px', padding:'8px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:7 }}>
-                <div style={{ fontSize:11, color:'rgba(248,113,113,.9)', fontWeight:700, letterSpacing:1 }}>
-                  ⚠️ {settings?.punishment || 'POSLEDNÍ MÍSTO — ČEKÁ TĚ TREST'}
-                </div>
-                <div style={{ fontSize:18 }}>🍺</div>
-              </div>
-            )}
-          </div>
-        );
+          );
+        });
       })}
     </div>
   );
 }
 
-// ── TABLE ────────────────────────────────────────────────────
-function Table({ players, rounds, scores, onScore, reactions, onReaction, comments, onComment, disputes, onDispute, onResolve, myName }) {
-  const [edit, setEdit] = useState(null); const [val, setVal] = useState('');
-  const [showEmoji, setShowEmoji] = useState(null);
-  const [reportCell, setReportCell] = useState(null); const [reportVal, setReportVal] = useState('');
-  const [commentRound, setCommentRound] = useState(null); const [commentVal, setCommentVal] = useState('');
-  const [sub, setSub] = useState('scores');
-  const rows = players.map(p => ({ name:p, total:rounds.reduce((s,r) => s+(scores[sk(p,r)]??0),0) })).sort((a,b) => b.total-a.total);
-  const commit = () => { if (!edit) return; const n = val===''?null:Number(val); if (val!==''&&isNaN(n)){setEdit(null);return;} onScore(edit,n); setEdit(null); };
-  const currentRound = [...rounds].reverse().find(r => players.some(p => scores[sk(p,r)] != null)) || rounds[rounds.length-1];
-  const currentRows = currentRound ? players.map(p => ({ name:p, pts:scores[sk(p,currentRound)]??null })).filter(r=>r.pts!==null).sort((a,b)=>b.pts-a.pts) : [];
+/* ── SETUP ─────────────────────────────────────────── */
+function Setup({existing,onJoin}){const [n,setN]=useState('');const [e,setE]=useState('');const go=()=>{const t=n.trim();if(!t){setE('Zadej přezdívku');return;}if(existing.includes(t)){setE('Tato přezdívka už existuje');return;}onJoin(t);};return(<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}><div style={{...S.card,maxWidth:360,width:'100%',textAlign:'center',padding:'32px 24px'}}><div style={{fontSize:48,marginBottom:12}}>🏒</div><div style={{fontSize:22,fontWeight:900,letterSpacing:2,marginBottom:4,background:'linear-gradient(135deg,#fff,#38bdf8)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>FANTASY MS HOKEJ</div><div style={{fontSize:11,color:C.muted,letterSpacing:3,marginBottom:24}}>2026 ŠVÝCARSKO</div><input value={n} onChange={e=>setN(e.target.value)} onKeyDown={e=>e.key==='Enter'&&go()} placeholder="Tvoje přezdívka…" style={{...S.input,textAlign:'center',fontSize:16,marginBottom:8}}/>{e&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>{e}</div>}<button onClick={go} style={{width:'100%',padding:'12px 0',border:'none',borderRadius:12,background:'linear-gradient(135deg,#1d4ed8,#0369a1)',color:'#fff',fontWeight:900,fontSize:16,fontFamily:'inherit',cursor:'pointer',letterSpacing:1}}>VSTOUPIT →</button>{existing.length>0&&<div style={{fontSize:11,color:C.muted,marginTop:16}}>Aktivní hráči: {existing.join(', ')}</div>}</div></div>);}
 
-  // Count open disputes per cell
-  const cellDisputeCount = key => Object.values(disputes[key]||{}).filter(d=>!d.resolved).length;
-  const totalOpen = Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
+/* ── SQUAD BUILDER ─────────────────────────────────── */
+function SquadBuilder({myName,rounds,squadBuilds,onSquadSave}){
+  const [selRound,setSelRound]=useState(rounds[rounds.length-1]||'');
+  const [mySquad,setMySquad]=useState(emptySquad());
+  const [pickSlot,setPickSlot]=useState(null);
+  const [search,setSearch]=useState('');
+  const [filterC,setFilterC]=useState('');
+  const [viewPlayer,setViewPlayer]=useState(myName);
+  const [now,setNow]=useState(Date.now());
+  const rk=selRound?fk(selRound):'';
 
-  if (!players.length || !rounds.length) return <p style={{ textAlign:'center', padding:60, color:C.muted }}>Přidej hráče a kola ve Správě</p>;
-  return (
+  useEffect(()=>{if(rounds.length)setSelRound(prev=>prev||rounds[rounds.length-1]);},[rounds]);
+  useEffect(()=>{if(rk&&squadBuilds[rk]&&squadBuilds[rk][fk(myName)]){setMySquad({...emptySquad(),...squadBuilds[rk][fk(myName)]});}else{setMySquad(emptySquad());}setViewPlayer(myName);},[rk,myName]);
+  useEffect(()=>{const i=setInterval(()=>setNow(Date.now()),60000);return()=>clearInterval(i);},[]);
+
+  // Get date for selected round (from MS schedule — find day where most games happen during tournament)
+  // For squad view, we show matches for the day when the round is active
+  // Use today's date for match strip
+  const todayISO=new Date().toISOString().slice(0,10);
+
+  const save=useCallback(async(sq)=>{if(!rk)return;await onSquadSave(rk,fk(myName),sq);},[rk,myName,onSquadSave]);
+  const setSlot=(slot,player)=>{const q={...mySquad,[slot]:player};if(q.captain&&q.captain===mySquad[slot]?.id)q.captain=null;setMySquad(q);save(q);setPickSlot(null);setSearch('');setFilterC('');};
+  const clearSlot=(slot)=>{const q={...mySquad,[slot]:null};if(q.captain&&q.captain===mySquad[slot]?.id)q.captain=null;setMySquad(q);save(q);};
+  const setCaptain=(id)=>{const q={...mySquad,captain:mySquad.captain===id?null:id};setMySquad(q);save(q);};
+  const usedIds=Object.values(mySquad).filter(v=>v&&typeof v==='object').map(v=>v.id);
+
+  // Players available for slot
+  const slotPos=pickSlot?SLOT_POS[pickSlot]:'';
+  const filteredPlayers=PDB.filter(([n,c,p])=>{
+    if(p!==slotPos)return false;
+    if(filterC&&c!==filterC)return false;
+    const id=`${c}_${n}`;
+    if(usedIds.includes(id))return false;
+    if(search&&!n.toLowerCase().includes(search.toLowerCase())&&!(COUNTRIES[c]?.n||'').toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+
+  // View mode: check reveal for each slot
+  const viewRk=rk;
+  const viewSquadData=viewPlayer&&viewRk&&squadBuilds[viewRk]?.[fk(viewPlayer)];
+  const viewSquad=viewPlayer===myName?mySquad:(viewSquadData?{...emptySquad(),...viewSquadData}:null);
+
+  const isRevealed=(player)=>{if(!player)return false;if(viewPlayer===myName)return true;return matchStartedFor(player.country);};
+
+  const capitalName=(sq)=>{if(!sq?.captain)return null;const allSlots=[...SLOTS,...SUB_SLOTS];for(const s of allSlots){if(sq[s]&&sq[s].id===sq.captain)return sq[s].name;}return null;};
+
+  const otherPlayers=rounds.length>0?Object.keys(squadBuilds[rk]||{}).map(k=>k.replace(/-/g,' ')).filter(p=>p!==myName.toLowerCase().replace(/\s+/g,'-')):[];
+
+  // All people who have squads for this round
+  const participantsWithSquad=Object.keys(squadBuilds[rk]||{});
+  const allMembers=participantsWithSquad;
+
+  if(!rounds.length)return(<div style={{textAlign:'center',padding:60,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🏒</div>Přidej kola ve Správě</div>);
+
+  return(
     <div>
-      {currentRound && (
-        <div style={{ position:'sticky', top:52, zIndex:40, marginBottom:10, background:'rgba(5,10,20,.97)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', borderRadius:14, border:'1px solid rgba(56,189,248,.2)', padding:'10px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.6)' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:currentRows.length?8:0 }}>
-            <div><div style={{ fontSize:9, letterSpacing:3, color:C.muted }}>AKTUÁLNÍ KOLO</div><div style={{ fontSize:17, fontWeight:900, color:C.cyan }}>🏒 {currentRound}</div></div>
-            <div style={{ textAlign:'right' }}><div style={{ fontSize:9, letterSpacing:3, color:C.muted }}>VEDE</div><div style={{ fontSize:14, fontWeight:900, color:C.gold }}>{rows[0]?`${rows[0].name} · ${rows[0].total} b`:'—'}</div></div>
+      {/* Round selector */}
+      <div style={{marginBottom:12}}>
+        <span style={S.lbl}>KOLO</span>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {rounds.map(r=><button key={r} onClick={()=>{setSelRound(r);setViewPlayer(myName);}} style={{padding:'6px 14px',borderRadius:20,cursor:'pointer',border:'none',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selRound===r)}}>{r}</button>)}
+        </div>
+      </div>
+
+      {/* Today's matches strip */}
+      <div style={{...S.card,marginBottom:12,padding:'10px 12px',border:'1px solid rgba(56,189,248,.15)'}}>
+        <span style={S.lbl}>ZÁPASY DNES</span>
+        <MatchDayStrip selectedDate={todayISO}/>
+      </div>
+
+      {/* View other squads toggle */}
+      {allMembers.length>0&&(
+        <div style={{marginBottom:12}}>
+          <span style={S.lbl}>ZOBRAZIT SESTAVU</span>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            <button onClick={()=>setViewPlayer(myName)} style={{...S.btn(viewPlayer===myName,'#1d4ed8'),padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700}}>👤 Moje</button>
+            {allMembers.filter(k=>k!==fk(myName)).map(k=>(
+              <button key={k} onClick={()=>setViewPlayer(k.replace(/-/g,' '))} style={{...S.btn(viewPlayer===k.replace(/-/g,' '),'#7c3aed'),padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700}}>{k.replace(/-/g,' ')}</button>
+            ))}
           </div>
-          {currentRows.length > 0 && (
-            <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-              {currentRows.slice(0,6).map((r,i) => (
-                <div key={r.name} style={{ display:'flex', alignItems:'center', gap:4, background:i===0?'rgba(251,191,36,.15)':'rgba(255,255,255,.05)', border:`1px solid ${i===0?'rgba(251,191,36,.4)':C.border}`, borderRadius:20, padding:'3px 9px' }}>
-                  <span style={{ fontSize:10 }}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}</span>
-                  <span style={{ fontSize:11, fontWeight:700 }}>{r.name}</span>
-                  <span style={{ fontSize:12, fontWeight:900, color:i===0?C.gold:C.cyan }}>{r.pts}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
-      <div style={{ display:'flex', gap:4, marginBottom:12, background:'rgba(255,255,255,.03)', borderRadius:10, padding:3, border:`1px solid ${C.border}` }}>
-        {[['scores','📊 Skóre'],['comments','💬 Komentáře'],['disputes','⚠️ Spory' + (totalOpen>0?` (${totalOpen})`:'')]].map(([k,l]) => (
-          <button key={k} onClick={() => setSub(k)} style={{ flex:1, padding:'8px 0', border:'none', borderRadius:8, cursor:'pointer', fontFamily:'inherit', fontSize:11, fontWeight:800, letterSpacing:.5,
-            background: sub===k ? (k==='disputes'?'linear-gradient(135deg,#92400e,#b45309)':'linear-gradient(135deg,#1d4ed8,#0369a1)') : 'transparent',
-            color: sub===k ? '#fff' : k==='disputes'&&totalOpen>0 ? C.orange : C.muted }}>{l}</button>
+
+      {/* Rink */}
+      {viewPlayer&&<Rink squad={viewSquad||emptySquad()} isOwner={viewPlayer===myName} onSlotClick={viewPlayer===myName?setPickSlot:null} onClear={viewPlayer===myName?clearSlot:null} onCaptain={viewPlayer===myName?setCaptain:null} isRevealed={isRevealed}/>}
+
+      {/* Captain info */}
+      {viewPlayer===myName&&squadComplete(mySquad)&&(
+        <div style={{...S.card,border:'1px solid rgba(251,191,36,.2)',background:'rgba(251,191,36,.04)',marginTop:8}}>
+          <span style={S.lbl}>👑 KAPITÁN (1.5× body)</span>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            {SLOTS.map(s=>{const pl=mySquad[s];if(!pl)return null;const isC=mySquad.captain===pl.id;return(
+              <button key={s} onClick={()=>setCaptain(pl.id)} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:800,background:isC?'linear-gradient(135deg,#b45309,#fbbf24)':'rgba(255,255,255,.06)',color:isC?'#fff':C.text}}>
+                {isC?'👑':''}{COUNTRIES[pl.country]?.f} {pl.name}
+              </button>
+            );})}
+          </div>
+          {mySquad.captain&&<div style={{fontSize:10,color:C.muted,marginTop:6}}>Kapitán: {capitalName(mySquad)} — body ×1.5</div>}
+        </div>
+      )}
+
+      {/* Player picker modal */}
+      {pickSlot&&(
+        <div style={{position:'fixed',inset:0,zIndex:200,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget){setPickSlot(null);setSearch('');setFilterC('');}}}>
+          <div style={{flex:1}}/>
+          <div style={{background:C.bg2,borderTop:`1px solid ${C.border}`,borderRadius:'20px 20px 0 0',padding:'16px 12px',maxHeight:'75vh',display:'flex',flexDirection:'column',animation:'slideUp .25s ease'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              <div style={{fontWeight:900,fontSize:15}}>Vyber {SLOT_LABEL[pickSlot]}</div>
+              <button onClick={()=>{setPickSlot(null);setSearch('');setFilterC('');}} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:22,lineHeight:1}}>✕</button>
+            </div>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Hledat hráče…" autoFocus style={{...S.input,marginBottom:8,fontSize:13}}/>
+            {/* Country filter */}
+            <div style={{display:'flex',gap:5,overflowX:'auto',marginBottom:10,paddingBottom:4}}>
+              <button onClick={()=>setFilterC('')} style={{flexShrink:0,padding:'4px 10px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,background:filterC===''?C.blue:'rgba(255,255,255,.06)',color:filterC===''?'#fff':C.muted,fontWeight:700}}>Vše</button>
+              {Object.entries(COUNTRIES).map(([code,{f,n}])=>(
+                <button key={code} onClick={()=>setFilterC(filterC===code?'':code)} style={{flexShrink:0,padding:'4px 10px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,background:filterC===code?C.blue:'rgba(255,255,255,.06)',color:filterC===code?'#fff':C.muted,fontWeight:700}}>{f} {n}</button>
+              ))}
+            </div>
+            <div style={{overflowY:'auto',flex:1}}>
+              {filteredPlayers.length===0&&<div style={{textAlign:'center',padding:24,color:C.muted}}>Žádní hráči</div>}
+              {filteredPlayers.map(([name,country,pos])=>{
+                const id=`${country}_${name}`;
+                return(
+                  <div key={id} onClick={()=>setSlot(pickSlot,{id,name,country,pos})} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 8px',borderRadius:10,cursor:'pointer',borderBottom:`1px solid ${C.border}`,background:'transparent'}}>
+                    <span style={{fontSize:20}}>{COUNTRIES[country]?.f}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:800,fontSize:14}}>{name}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{COUNTRIES[country]?.n} · {pos==='B'?'Brankář':pos==='O'?'Obránce':'Útočník'}</div>
+                    </div>
+                    <div style={{fontSize:11,color:C.cyan,fontWeight:700}}>+</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── RINK COMPONENT ─────────────────────────────────── */
+function Rink({squad,isOwner,onSlotClick,onClear,onCaptain,isRevealed}){
+  return(
+    <div>
+      {/* Kluziště */}
+      <div style={{background:'linear-gradient(180deg,#1a3a5c 0%,#0f2040 100%)',borderRadius:28,padding:'16px 12px 20px',border:'1px solid rgba(56,189,248,.2)',position:'relative',overflow:'hidden',marginBottom:8}}>
+        {/* Rink lines decoration */}
+        <div style={{position:'absolute',inset:0,pointerEvents:'none'}}>
+          <div style={{position:'absolute',top:'42%',left:0,right:0,height:2,background:'rgba(255,100,100,.2)'}}/>
+          <div style={{position:'absolute',top:'38%',bottom:'28%',left:'50%',width:60,height:60,borderRadius:'50%',border:'2px solid rgba(100,180,255,.15)',transform:'translate(-50%,-10%)'}}/>
+          <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,borderRadius:28,border:'2px solid rgba(255,255,255,.08)'}}/>
+        </div>
+        {/* Forwards row */}
+        <div style={{display:'flex',justifyContent:'space-around',marginBottom:16,position:'relative',zIndex:1}}>
+          {['F1','F2','F3'].map(s=><JerseySlot key={s} slot={s} player={squad[s]} isOwner={isOwner} isCapt={squad.captain&&squad[s]&&squad.captain===squad[s].id} onClick={onSlotClick?()=>onSlotClick(s):null} onClear={onClear?()=>onClear(s):null} revealed={isRevealed(squad[s])}/>)}
+        </div>
+        {/* Defenders row */}
+        <div style={{display:'flex',justifyContent:'space-around',marginBottom:20,position:'relative',zIndex:1}}>
+          <div style={{width:60}}/>
+          {['D1','D2'].map(s=><JerseySlot key={s} slot={s} player={squad[s]} isOwner={isOwner} isCapt={squad.captain&&squad[s]&&squad.captain===squad[s].id} onClick={onSlotClick?()=>onSlotClick(s):null} onClear={onClear?()=>onClear(s):null} revealed={isRevealed(squad[s])}/>)}
+          <div style={{width:60}}/>
+        </div>
+        {/* Goalkeeper */}
+        <div style={{display:'flex',justifyContent:'center',position:'relative',zIndex:1}}>
+          <JerseySlot slot="G" player={squad.G} isOwner={isOwner} isCapt={squad.captain&&squad.G&&squad.captain===squad.G.id} onClick={onSlotClick?()=>onSlotClick('G'):null} onClear={onClear?()=>onClear('G'):null} revealed={isRevealed(squad.G)}/>
+        </div>
+      </div>
+      {/* Subs */}
+      <div style={{...S.card,marginBottom:4,padding:'10px 12px'}}>
+        <span style={S.lbl}>NÁHRADNÍCI</span>
+        <div style={{display:'flex',justifyContent:'space-around'}}>
+          {['subF','subD','subG'].map(s=><JerseySlot key={s} slot={s} player={squad[s]} isOwner={isOwner} isCapt={false} onClick={onSlotClick?()=>onSlotClick(s):null} onClear={onClear?()=>onClear(s):null} revealed={isRevealed(squad[s])} small/>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function JerseySlot({slot,player,isOwner,isCapt,onClick,onClear,revealed,small}){
+  const hasPlayer=player!==null;
+  const show=hasPlayer&&(revealed||isOwner);
+  const flag=show?COUNTRIES[player?.country]?.f:'';
+  const sz=small?54:66;
+  return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,width:sz+8}}>
+      <div onClick={show&&onClear?onClear:onClick||undefined} style={{
+        width:sz,height:sz,borderRadius:12,cursor:(onClick||onClear)?'pointer':'default',
+        display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+        position:'relative',
+        background:show?'rgba(255,255,255,.1)':hasPlayer&&!revealed?'rgba(255,150,0,.08)':'rgba(255,255,255,.05)',
+        border:show?`1px solid ${isCapt?'#fbbf24':'rgba(56,189,248,.4)'}`:hasPlayer&&!revealed?'1px solid rgba(255,150,0,.3)':`1px dashed ${C.faint}`,
+        transition:'all .2s',
+      }}>
+        {/* Jersey icon */}
+        <div style={{fontSize:small?26:32,lineHeight:1,filter:show?'none':'grayscale(1) opacity(.4)'}}>
+          {show&&flag?<div style={{display:'flex',flexDirection:'column',alignItems:'center'}}><span>{flag}</span><span style={{fontSize:10}}>👕</span></div>:'👕'}
+        </div>
+        {!hasPlayer&&onClick&&<div style={{position:'absolute',bottom:2,right:2,width:16,height:16,borderRadius:'50%',background:'rgba(56,189,248,.9)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:900,color:'#fff',lineHeight:1}}>+</div>}
+        {hasPlayer&&!revealed&&!isOwner&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,borderRadius:12}}>❓</div>}
+        {isCapt&&show&&<div style={{position:'absolute',top:-6,left:'50%',transform:'translateX(-50%)',background:'#fbbf24',color:'#000',borderRadius:8,padding:'1px 5px',fontSize:8,fontWeight:900}}>C</div>}
+      </div>
+      <div style={{fontSize:9,color:show?C.text:C.muted,fontWeight:show?700:400,textAlign:'center',maxWidth:sz+8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',lineHeight:1.2}}>
+        {show?player.name:SLOT_LABEL[slot]}
+      </div>
+    </div>
+  );
+}
+
+/* ── LEADERBOARD ────────────────────────────────────── */
+function Leaderboard({players,rounds,scores,settings}){
+  const rows=players.map(p=>({name:p,total:rounds.reduce((s,r)=>s+(scores[sk(p,r)]??0),0)})).sort((a,b)=>b.total-a.total);
+  const maxT=Math.max(...rows.map(r=>r.total),1);
+  const penalty=settings?.penalty??0;
+  const last=rows.length?rows[rows.length-1]:null;
+  const prev=rounds.length>=2?[...rounds].slice(-2,-1)[0]:null;
+  const prevRows=prev?players.map(p=>({name:p,pts:scores[sk(p,prev)]??null})).filter(r=>r.pts!==null).sort((a,b)=>b.pts-a.pts):[];
+  const playerOfRound=prevRows[0]?.name;
+  const bigJump=rows.length>=2?rows.reduce((best,r,i)=>{const prev_idx=rows.findIndex(p=>p.name===r.name);return i<prev_idx?{name:r.name,jump:prev_idx-i}:best},{name:'',jump:0}):null;
+  return(
+    <div>
+      {settings?.nextMatch&&<div style={{...S.card,marginBottom:12,textAlign:'center',background:'rgba(56,189,248,.06)',border:'1px solid rgba(56,189,248,.2)'}}><div style={{fontSize:9,letterSpacing:3,color:C.cyan,marginBottom:4}}>PŘÍŠTÍ ZÁPAS</div><Countdown nextMatch={settings.nextMatch}/></div>}
+      {(playerOfRound||bigJump?.name)&&(
+        <div style={{display:'flex',gap:8,marginBottom:12}}>
+          {playerOfRound&&<div style={{flex:1,...S.card,textAlign:'center',padding:'10px 8px'}}><div style={{fontSize:8,letterSpacing:2,color:C.gold,marginBottom:4}}>HRÁČ KOLA</div><div style={{fontWeight:900,fontSize:15}}>{playerOfRound}</div><div style={{fontSize:11,color:C.muted}}>{prevRows[0]?.pts} b</div></div>}
+          {bigJump?.jump>0&&<div style={{flex:1,...S.card,textAlign:'center',padding:'10px 8px'}}><div style={{fontSize:8,letterSpacing:2,color:C.green,marginBottom:4}}>NEJVĚTŠÍ SKOK</div><div style={{fontWeight:900,fontSize:15}}>{bigJump.name}</div><div style={{fontSize:11,color:C.muted}}>+{bigJump.jump} míst</div></div>}
+        </div>
+      )}
+      {rows.map((r,i)=>{
+        const isLast=i===rows.length-1&&rows.length>1;
+        const col=[C.gold,C.silver,C.bronze][i]||C.text;
+        return(
+          <div key={r.name} style={{...S.card,display:'flex',alignItems:'center',gap:12,padding:'10px 14px',border:`1px solid ${isLast?'rgba(239,68,68,.2)':C.border}`,background:isLast?'rgba(239,68,68,.05)':'rgba(13,24,41,.7)',animation:'fadeUp .3s ease'}}>
+            <div style={{fontSize:i<3?22:14,fontWeight:900,minWidth:28,textAlign:'center',color:i<3?col:C.muted}}>{i<3?MEDALS[i]:i+1}</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800,fontSize:15,color:isLast?C.red:C.text}}>{r.name} {isLast?'💀🍺':''}</div>
+              <div style={{height:4,background:'rgba(255,255,255,.05)',borderRadius:2,marginTop:4,overflow:'hidden'}}><div style={{height:'100%',width:`${(r.total/maxT)*100}%`,borderRadius:2,background:i<3?`linear-gradient(90deg,${col}66,${col})`:C.blue,transition:'width .8s'}}/></div>
+            </div>
+            <div style={{fontWeight:900,fontSize:22,color:i<3?col:C.cyan}}>{r.total}</div>
+          </div>
+        );
+      })}
+      {isLast&&last&&penalty>0&&<div style={{textAlign:'center',fontSize:11,color:C.red,marginTop:4}}>💀 {last.name} dluží {penalty}× pivo skupince!</div>}
+    </div>
+  );
+}
+
+/* ── TABLE ──────────────────────────────────────────── */
+function Table({players,rounds,scores,onScore,reactions,onReaction,comments,onComment,disputes,onDispute,onResolve,myName}){
+  const [edit,setEdit]=useState(null);const [val,setVal]=useState('');
+  const [showEmoji,setShowEmoji]=useState(null);const [reportCell,setReportCell]=useState(null);const [reportVal,setReportVal]=useState('');
+  const [commentRound,setCommentRound]=useState(null);const [commentVal,setCommentVal]=useState('');
+  const [sub,setSub]=useState('scores');
+  const rows=players.map(p=>({name:p,total:rounds.reduce((s,r)=>s+(scores[sk(p,r)]??0),0)})).sort((a,b)=>b.total-a.total);
+  const commit=()=>{if(!edit)return;const n=val===''?null:Number(val);if(val!==''&&isNaN(n)){setEdit(null);return;}onScore(edit,n);setEdit(null);};
+  const cellDC=key=>Object.values(disputes[key]||{}).filter(d=>!d.resolved).length;
+  const totalOpen=Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
+  if(!players.length||!rounds.length)return<p style={{textAlign:'center',padding:60,color:C.muted}}>Přidej hráče a kola ve Správě</p>;
+  return(
+    <div>
+      <div style={{display:'flex',gap:4,marginBottom:12,background:'rgba(255,255,255,.03)',borderRadius:10,padding:3,border:`1px solid ${C.border}`}}>
+        {[['scores','📊 Skóre'],['comments','💬 Komentáře'],['disputes','⚠️ Spory'+(totalOpen>0?` (${totalOpen})`:'')]].map(([k,l])=>(
+          <button key={k} onClick={()=>setSub(k)} style={{flex:1,padding:'8px 0',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:800,letterSpacing:.3,background:sub===k?(k==='disputes'?'linear-gradient(135deg,#92400e,#b45309)':'linear-gradient(135deg,#1d4ed8,#0369a1)'):'transparent',color:sub===k?'#fff':k==='disputes'&&totalOpen>0?C.orange:C.muted}}>{l}</button>
         ))}
       </div>
-      {sub === 'scores' && (
+      {sub==='scores'&&(
         <div>
-          <div style={{ overflowX:'auto', borderRadius:14, border:`1px solid ${C.border}` }}>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:Math.max(300, 110+rounds.length*72) }}>
-              <thead>
-                <tr style={{ background:'linear-gradient(135deg,rgba(59,130,246,.4),rgba(29,78,216,.3))' }}>
-                  <th style={{ padding:'11px 14px', textAlign:'left', fontWeight:800, color:C.cyan, fontSize:10, letterSpacing:2, position:'sticky', left:0, background:'#0d1e3a', whiteSpace:'nowrap' }}>HRÁČ</th>
-                  {rounds.map(r => <th key={r} style={{ padding:'11px 8px', textAlign:'center', fontWeight:800, color:C.cyan, fontSize:10, whiteSpace:'nowrap' }}>{r}</th>)}
-                  <th style={{ padding:'11px 14px', textAlign:'center', fontWeight:800, color:C.gold, fontSize:10 }}>Σ</th>
-                </tr>
-              </thead>
+          <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:Math.max(300,rounds.length*80+100)}}>
+              <thead><tr>
+                <th style={{padding:'8px 10px',textAlign:'left',fontSize:10,color:C.muted,fontWeight:700,letterSpacing:1,background:'rgba(13,24,41,.9)',position:'sticky',left:0,zIndex:2}}>#</th>
+                {rounds.map(r=><th key={r} style={{padding:'8px 6px',textAlign:'center',fontSize:10,color:C.cyan,fontWeight:700,letterSpacing:1}}>{r}</th>)}
+                <th style={{padding:'8px 10px',textAlign:'center',fontSize:10,color:C.gold,fontWeight:700}}>∑</th>
+              </tr></thead>
               <tbody>
-                {rows.map((t, ri) => (
-                  <tr key={t.name} style={{ borderTop:`1px solid ${C.border}`, background:ri%2===0?'rgba(255,255,255,.015)':'transparent' }}>
-                    <td style={{ padding:'9px 14px', fontWeight:700, fontSize:14, whiteSpace:'nowrap', position:'sticky', left:0, background:ri%2===0?'#0f1e35':'#0b1628' }}>
-                      {MEDALS[ri] || <span style={{ color:C.muted, fontSize:11 }}>#{ri+1} </span>}{t.name}
+                {rows.map((t,ri)=>(
+                  <tr key={t.name} style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:'8px 10px',background:'rgba(13,24,41,.85)',position:'sticky',left:0,zIndex:1}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:ri<3?16:12,color:[C.gold,C.silver,C.bronze][ri]||C.muted}}>{ri<3?MEDALS[ri]:ri+1}</span><span style={{fontWeight:800,fontSize:13,whiteSpace:'nowrap'}}>{t.name}</span></div>
                     </td>
-                    {rounds.map(r => {
-                      const key = sk(t.name, r); const v = scores[key] ?? null;
-                      const isMyRow = t.name === myName;
-                      const rxs = reactions[key] || {}; const myRx = rxs[fk(myName)];
-                      const rxCounts = {}; Object.values(rxs).forEach(e => { rxCounts[e] = (rxCounts[e]||0)+1; });
-                      const dCount = cellDisputeCount(key);
-                      const isReporting = reportCell === key;
-                      return (
-                        <td key={r} style={{ padding:'4px', textAlign:'center', position:'relative',
-                          background: dCount>0 ? 'rgba(251,146,60,.06)' : 'transparent' }}>
-                          {isReporting
-                            ? <div style={{ position:'absolute', zIndex:200, top:'100%', left:'50%', transform:'translateX(-50%)', background:C.bg2, border:'1px solid rgba(251,146,60,.5)', borderRadius:12, padding:'10px 12px', width:200, boxShadow:'0 8px 30px rgba(0,0,0,.7)' }}>
-                                <div style={{ fontSize:11, fontWeight:800, color:C.orange, marginBottom:6 }}>⚠️ Nahlásit skóre {v}</div>
-                                <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>{t.name} · {r}</div>
-                                <textarea value={reportVal} onChange={e=>setReportVal(e.target.value)} placeholder="Proč je to špatně? (např. měl jen 45 bodů)" rows={3} maxLength={150} style={{ ...S.input, fontSize:12, resize:'none', marginBottom:8 }}/>
-                                <div style={{ display:'flex', gap:6 }}>
-                                  <button onClick={()=>{ if(reportVal.trim()){ onDispute(key,reportVal.trim()); setReportCell(null); setReportVal(''); }}} style={{ flex:1, background:'linear-gradient(135deg,#92400e,#b45309)', border:'none', borderRadius:8, color:'#fff', fontWeight:800, padding:'7px 0', cursor:'pointer', fontSize:12, fontFamily:'inherit' }}>Odeslat</button>
-                                  <button onClick={()=>{ setReportCell(null); setReportVal(''); }} style={{ background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, color:C.muted, fontWeight:700, padding:'7px 10px', cursor:'pointer', fontSize:12, fontFamily:'inherit' }}>✕</button>
-                                </div>
+                    {rounds.map(r=>{
+                      const key=sk(t.name,r);const v=scores[key]??null;
+                      const isMyRow=t.name===myName;
+                      const rxs=reactions[key]||{};const myRx=rxs[fk(myName)];
+                      const rxCounts={};Object.values(rxs).forEach(e=>{rxCounts[e]=(rxCounts[e]||0)+1;});
+                      const dCount=cellDC(key);
+                      const isReporting=reportCell===key;
+                      return(
+                        <td key={r} style={{padding:'4px',textAlign:'center',position:'relative',background:dCount>0?'rgba(251,146,60,.06)':'transparent'}}>
+                          {isReporting&&<div style={{position:'absolute',zIndex:200,top:'100%',left:'50%',transform:'translateX(-50%)',background:C.bg2,border:'1px solid rgba(251,146,60,.5)',borderRadius:12,padding:'10px 12px',width:200,boxShadow:'0 8px 30px rgba(0,0,0,.7)'}}>
+                            <div style={{fontSize:11,fontWeight:800,color:C.orange,marginBottom:4}}>⚠️ Nahlásit skóre {v}</div>
+                            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{t.name} · {r}</div>
+                            <textarea value={reportVal} onChange={e=>setReportVal(e.target.value)} placeholder="Proč je to špatně?" rows={3} maxLength={150} style={{...S.input,fontSize:12,resize:'none',marginBottom:8}}/>
+                            <div style={{display:'flex',gap:6}}>
+                              <button onClick={()=>{if(reportVal.trim()){onDispute(key,reportVal.trim());setReportCell(null);setReportVal('');}}} style={{flex:1,background:'linear-gradient(135deg,#92400e,#b45309)',border:'none',borderRadius:8,color:'#fff',fontWeight:800,padding:'7px 0',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>Odeslat</button>
+                              <button onClick={()=>{setReportCell(null);setReportVal('');}} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontWeight:700,padding:'7px 10px',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>✕</button>
+                            </div>
+                          </div>}
+                          {edit===key
+                            ?<input autoFocus type="number" value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==='Enter')commit();if(e.key==='Escape')setEdit(null);}} style={{width:58,textAlign:'center',background:'rgba(59,130,246,.3)',border:`2px solid ${C.cyan}`,borderRadius:8,color:'#fff',fontFamily:'inherit',fontSize:15,fontWeight:800,padding:5,outline:'none'}}/>
+                            :<div>
+                              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+                                {isMyRow
+                                  ?<button onClick={()=>{setEdit(key);setVal(v??'');}} style={{minWidth:42,padding:'5px 6px',borderRadius:8,cursor:'pointer',background:dCount>0?'rgba(251,146,60,.15)':v!==null?'rgba(59,130,246,.2)':'rgba(255,255,255,.03)',border:dCount>0?'1px solid rgba(251,146,60,.5)':v!==null?'1px solid rgba(56,189,248,.25)':`1px dashed ${C.faint}`,color:v!==null?C.text:C.faint,fontFamily:'inherit',fontSize:14,fontWeight:800}}>{v!==null?v:'—'}</button>
+                                  :<div style={{minWidth:42,padding:'5px 6px',borderRadius:8,display:'inline-flex',alignItems:'center',justifyContent:'center',background:dCount>0?'rgba(251,146,60,.12)':v!==null?'rgba(255,255,255,.06)':'transparent',border:dCount>0?'1px solid rgba(251,146,60,.4)':'none',color:v!==null?C.text:C.faint,fontSize:14,fontWeight:800}}>{v!==null?v:<span style={{fontSize:11}}>🔒</span>}</div>}
+                                {!isMyRow&&v!==null&&<button onClick={()=>{setReportCell(reportCell===key?null:key);setReportVal('');}} style={{padding:'2px 7px',borderRadius:6,border:'none',cursor:'pointer',fontSize:10,fontWeight:900,background:dCount>0?'rgba(251,146,60,.3)':'rgba(255,255,255,.08)',color:dCount>0?C.orange:'#64748b'}}>{dCount>0?`⚠️${dCount}`:'!'}</button>}
+                                {isMyRow&&dCount>0&&<span style={{fontSize:9,background:'rgba(251,146,60,.25)',color:C.orange,borderRadius:6,padding:'1px 5px',fontWeight:900}}>⚠️{dCount}</span>}
                               </div>
-                            : null
-                          }
-                          {edit === key
-                            ? <input autoFocus type="number" value={val} onChange={e => setVal(e.target.value)} onBlur={commit} onKeyDown={e => { if(e.key==='Enter') commit(); if(e.key==='Escape') setEdit(null); }} style={{ width:58, textAlign:'center', background:'rgba(59,130,246,.3)', border:`2px solid ${C.cyan}`, borderRadius:8, color:'#fff', fontFamily:'inherit', fontSize:15, fontWeight:800, padding:5, outline:'none' }}/>
-                            : <div>
-                                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-                                  {isMyRow
-                                    ? <button onClick={() => { setEdit(key); setVal(v ?? ''); }} style={{ minWidth:42, padding:'5px 6px', borderRadius:8, cursor:'pointer',
-                                        background: dCount>0?'rgba(251,146,60,.15)':v!==null?'rgba(59,130,246,.2)':'rgba(255,255,255,.03)',
-                                        border: dCount>0?'1px solid rgba(251,146,60,.5)':v!==null?'1px solid rgba(56,189,248,.25)':`1px dashed ${C.faint}`,
-                                        color:v!==null?C.text:C.faint, fontFamily:'inherit', fontSize:14, fontWeight:800 }}>
-                                        {v !== null ? v : '—'}
-                                      </button>
-                                    : <div style={{ minWidth:42, padding:'5px 6px', borderRadius:8, display:'inline-flex', alignItems:'center', justifyContent:'center',
-                                        background: dCount>0?'rgba(251,146,60,.12)':v!==null?'rgba(255,255,255,.06)':'transparent',
-                                        border: dCount>0?'1px solid rgba(251,146,60,.4)':'none',
-                                        color:v!==null?C.text:C.faint, fontSize:14, fontWeight:800 }}>
-                                        {v !== null ? v : <span style={{ fontSize:11 }}>🔒</span>}
-                                      </div>
-                                  }
-                                  {/* ⚠️ report button — below score, always visible on others' rows */}
-                                  {!isMyRow && v !== null && (
-                                    <button onClick={()=>{ setReportCell(reportCell===key?null:key); setReportVal(''); }}
-                                      style={{ padding:'2px 7px', borderRadius:6, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:900,
-                                        background: dCount>0?'rgba(251,146,60,.3)':'rgba(255,255,255,.08)',
-                                        color: dCount>0?C.orange:'#64748b' }}>
-                                      {dCount>0 ? `⚠️${dCount}` : '!'}
-                                    </button>
-                                  )}
-                                  {/* dispute indicator on own row */}
-                                  {isMyRow && dCount>0 && (
-                                    <span style={{ fontSize:9, background:'rgba(251,146,60,.25)', color:C.orange, borderRadius:6, padding:'1px 5px', fontWeight:900 }}>⚠️{dCount}</span>
-                                  )}
-                                </div>
-                                {v !== null && (
-                                  <div style={{ display:'flex', justifyContent:'center', gap:2, marginTop:2, flexWrap:'wrap' }}>
-                                    {Object.entries(rxCounts).map(([em, cnt]) => (
-                                      <span key={em} onClick={() => onReaction(key, em===myRx?null:em)} style={{ fontSize:10, cursor:'pointer', background:em===myRx?'rgba(56,189,248,.2)':'rgba(255,255,255,.05)', borderRadius:10, padding:'1px 4px', border:em===myRx?'1px solid rgba(56,189,248,.4)':`1px solid ${C.border}` }}>
-                                        {em}{cnt > 1 ? cnt : ''}
-                                      </span>
-                                    ))}
-                                    <span onClick={() => setShowEmoji(showEmoji===key?null:key)} style={{ fontSize:10, cursor:'pointer', color:C.muted, background:'rgba(255,255,255,.03)', borderRadius:10, padding:'1px 4px', border:`1px solid ${C.border}` }}>+</span>
-                                  </div>
-                                )}
-                                {showEmoji === key && (
-                                  <div style={{ position:'absolute', zIndex:100, background:C.bg2, border:`1px solid ${C.border}`, borderRadius:10, padding:'6px 8px', display:'flex', gap:4, top:'100%', left:'50%', transform:'translateX(-50%)', boxShadow:'0 4px 20px rgba(0,0,0,.5)' }}>
-                                    {EMOJIS.map(em => <span key={em} onClick={() => { onReaction(key, em===myRx?null:em); setShowEmoji(null); }} style={{ fontSize:18, cursor:'pointer', filter:em===myRx?'drop-shadow(0 0 4px #38bdf8)':'none' }}>{em}</span>)}
-                                  </div>
-                                )}
-                              </div>
-                          }
+                              {v!==null&&<div style={{display:'flex',justifyContent:'center',gap:2,marginTop:2,flexWrap:'wrap'}}>
+                                {Object.entries(rxCounts).map(([em,cnt])=><span key={em} onClick={()=>onReaction(key,em===myRx?null:em)} style={{fontSize:10,cursor:'pointer',background:em===myRx?'rgba(56,189,248,.2)':'rgba(255,255,255,.05)',borderRadius:10,padding:'1px 4px',border:em===myRx?'1px solid rgba(56,189,248,.4)':`1px solid ${C.border}`}}>{em}{cnt>1?cnt:''}</span>)}
+                                <span onClick={()=>setShowEmoji(showEmoji===key?null:key)} style={{fontSize:10,cursor:'pointer',color:C.muted,background:'rgba(255,255,255,.03)',borderRadius:10,padding:'1px 4px',border:`1px solid ${C.border}`}}>+</span>
+                              </div>}
+                              {showEmoji===key&&<div style={{position:'absolute',zIndex:100,background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:'6px 8px',display:'flex',gap:4,top:'100%',left:'50%',transform:'translateX(-50%)',boxShadow:'0 4px 20px rgba(0,0,0,.5)'}}>
+                                {EMOJIS.map(em=><span key={em} onClick={()=>{onReaction(key,em===myRx?null:em);setShowEmoji(null);}} style={{fontSize:18,cursor:'pointer',filter:em===myRx?'drop-shadow(0 0 4px #38bdf8)':'none'}}>{em}</span>)}
+                              </div>}
+                            </div>}
                         </td>
                       );
                     })}
-                    <td style={{ padding:'9px 14px', textAlign:'center', fontWeight:900, fontSize:19, color:ri===0?C.gold:C.cyan }}>{t.total}</td>
+                    <td style={{padding:'9px 14px',textAlign:'center',fontWeight:900,fontSize:19,color:ri===0?C.gold:C.cyan}}>{t.total}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p style={{ fontSize:10, color:C.faint, marginTop:8, textAlign:'right' }}>Upravuješ pouze svůj řádek 🔒 · + → emoji reakce</p>
+          <p style={{fontSize:10,color:C.faint,marginTop:8,textAlign:'right'}}>Upravuješ pouze svůj řádek 🔒 · ! → nahlásit · + → emoji</p>
         </div>
       )}
-      {sub === 'comments' && (
+      {sub==='comments'&&(
         <div>
-          {rounds.length === 0 && <p style={{ textAlign:'center', padding:40, color:C.muted }}>Žádná kola</p>}
-          {[...rounds].reverse().map(r => {
-            const rk = fk(r); const rc = comments[rk] || {};
-            return (
-              <div key={r} style={{ ...S.card, marginBottom:12 }}>
-                <div style={{ fontWeight:800, fontSize:15, marginBottom:10, color:C.cyan }}>🏒 {r}</div>
-                {Object.entries(rc).map(([who, txt]) => (
-                  <div key={who} style={{ display:'flex', gap:8, marginBottom:8, padding:'8px 10px', background:'rgba(255,255,255,.03)', borderRadius:10, border:`1px solid ${C.border}` }}>
-                    <div style={{ fontWeight:700, fontSize:12, color:C.gold, flexShrink:0 }}>{who.replace(/-/g,' ')}:</div>
-                    <div style={{ fontSize:13, color:C.text, flex:1 }}>{txt}</div>
-                    {fk(myName) === who && <span onClick={() => onComment(rk, fk(myName), null)} style={{ fontSize:11, color:C.red, cursor:'pointer', flexShrink:0 }}>✕</span>}
-                  </div>
-                ))}
-                {commentRound === r
-                  ? <div style={{ display:'flex', gap:6 }}>
-                      <textarea value={commentVal} onChange={e => setCommentVal(e.target.value)} placeholder="Napiš komentář…" maxLength={120} rows={2} style={{ ...S.input, resize:'none', fontSize:13 }}/>
-                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                        <button onClick={() => { if(commentVal.trim()) onComment(rk, fk(myName), commentVal.trim()); setCommentRound(null); setCommentVal(''); }} style={{ background:'linear-gradient(135deg,#1d4ed8,#0369a1)', border:'none', borderRadius:8, color:'#fff', fontWeight:900, padding:'6px 10px', cursor:'pointer', fontSize:12 }}>OK</button>
-                        <button onClick={() => { setCommentRound(null); setCommentVal(''); }} style={{ background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, color:C.muted, fontWeight:700, padding:'6px 10px', cursor:'pointer', fontSize:11 }}>✕</button>
-                      </div>
-                    </div>
-                  : <button onClick={() => { setCommentRound(r); setCommentVal(rc[fk(myName)]||''); }} style={{ background:'rgba(255,255,255,.03)', border:`1px dashed ${C.border}`, borderRadius:8, color:C.muted, cursor:'pointer', padding:'7px 14px', width:'100%', fontFamily:'inherit', fontSize:12 }}>
-                      {rc[fk(myName)] ? '✏️ Upravit komentář' : '+ Přidat komentář'}
-                    </button>
-                }
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {sub === 'disputes' && (
-        <div>
-          {totalOpen === 0 && Object.keys(disputes).length === 0 && (
-            <div style={{ textAlign:'center', padding:50, color:C.muted }}>
-              <div style={{ fontSize:32, marginBottom:8 }}>✅</div>
-              <div>Žádné nahlášené spory — všechno čisté!</div>
+          {[...rounds].reverse().map(r=>{const rk_=fk(r);const rc=comments[rk_]||{};return(
+            <div key={r} style={{...S.card,marginBottom:12}}>
+              <div style={{fontWeight:800,fontSize:15,marginBottom:10,color:C.cyan}}>🏒 {r}</div>
+              {Object.entries(rc).map(([who,txt])=><div key={who} style={{display:'flex',gap:8,marginBottom:8,padding:'8px 10px',background:'rgba(255,255,255,.03)',borderRadius:10,border:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:12,color:C.gold,flexShrink:0}}>{who.replace(/-/g,' ')}:</div><div style={{fontSize:13,color:C.text,flex:1}}>{txt}</div>{fk(myName)===who&&<span onClick={()=>onComment(rk_,fk(myName),null)} style={{fontSize:11,color:C.red,cursor:'pointer',flexShrink:0}}>✕</span>}</div>)}
+              {commentRound===r?<div style={{display:'flex',gap:6}}><textarea value={commentVal} onChange={e=>setCommentVal(e.target.value)} placeholder="Napiš komentář…" maxLength={120} rows={2} style={{...S.input,resize:'none',fontSize:13}}/><div style={{display:'flex',flexDirection:'column',gap:4}}><button onClick={()=>{if(commentVal.trim())onComment(rk_,fk(myName),commentVal.trim());setCommentRound(null);setCommentVal('');}} style={{background:'linear-gradient(135deg,#1d4ed8,#0369a1)',border:'none',borderRadius:8,color:'#fff',fontWeight:900,padding:'6px 10px',cursor:'pointer',fontSize:12}}>OK</button><button onClick={()=>{setCommentRound(null);setCommentVal('');}} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontWeight:700,padding:'6px 10px',cursor:'pointer',fontSize:11}}>✕</button></div></div>:<button onClick={()=>{setCommentRound(r);setCommentVal(rc[fk(myName)]||'');}} style={{background:'rgba(255,255,255,.03)',border:`1px dashed ${C.border}`,borderRadius:8,color:C.muted,cursor:'pointer',padding:'7px 14px',width:'100%',fontFamily:'inherit',fontSize:12}}>{rc[fk(myName)]?'✏️ Upravit':'+ Přidat komentář'}</button>}
             </div>
-          )}
-          {Object.entries(disputes).map(([scoreKey, cellDisputes]) => {
-            const allDisputes = Object.entries(cellDisputes).sort((a,b) => b[1].time - a[1].time);
-            const openOnes = allDisputes.filter(([,d]) => !d.resolved);
-            const resolvedOnes = allDisputes.filter(([,d]) => d.resolved);
-            const parts = scoreKey.split('__');
-            const playerName = parts[0]?.replace(/-/g,' ');
-            const roundName  = parts[1]?.replace(/-/g,' ');
-            const scoreVal   = scores[scoreKey] ?? '?';
-            if (!allDisputes.length) return null;
-            return (
-              <div key={scoreKey} style={{ ...S.card, marginBottom:12,
-                border:`1px solid ${openOnes.length>0?'rgba(251,146,60,.4)':C.border}`,
-                background: openOnes.length>0?'rgba(251,146,60,.05)':'rgba(255,255,255,.02)' }}>
-                {/* header */}
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:800, fontSize:15 }}>{playerName}</div>
-                    <div style={{ fontSize:12, color:C.muted }}>{roundName} · <span style={{ color:C.cyan, fontWeight:800 }}>{scoreVal} bodů</span></div>
-                  </div>
-                  <div style={{ textAlign:'right' }}>
-                    {openOnes.length>0&&<div style={{ background:'rgba(251,146,60,.2)', border:'1px solid rgba(251,146,60,.4)', borderRadius:16, padding:'3px 10px', fontSize:11, fontWeight:800, color:C.orange }}>⚠️ {openOnes.length} otevřených</div>}
-                    {openOnes.length===0&&<div style={{ background:'rgba(74,222,128,.1)', border:'1px solid rgba(74,222,128,.3)', borderRadius:16, padding:'3px 10px', fontSize:11, fontWeight:800, color:C.green }}>✅ Vyřešeno</div>}
-                  </div>
-                </div>
-                {/* open disputes */}
-                {openOnes.map(([id, d]) => (
-                  <div key={id} style={{ background:'rgba(251,146,60,.1)', border:'1px solid rgba(251,146,60,.3)', borderRadius:10, padding:'10px 12px', marginBottom:8 }}>
-                    <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
-                          <span style={{ fontWeight:800, fontSize:13, color:C.orange }}>⚠️ {d.who}</span>
-                          <span style={{ fontSize:10, color:C.muted }}>{new Date(d.time).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
-                        </div>
-                        <div style={{ fontSize:13, color:C.text, lineHeight:1.4 }}>„{d.comment}"</div>
-                      </div>
-                      <button onClick={()=>onResolve(scoreKey,id)} style={{ background:'rgba(74,222,128,.15)', border:'1px solid rgba(74,222,128,.4)', color:C.green, borderRadius:8, cursor:'pointer', padding:'6px 10px', fontFamily:'inherit', fontSize:11, fontWeight:800, flexShrink:0 }}>
-                        ✅ Vyřešeno
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {/* resolved */}
-                {resolvedOnes.length>0&&(
-                  <div style={{ marginTop:4 }}>
-                    {resolvedOnes.map(([id,d])=>(
-                      <div key={id} style={{ display:'flex', gap:8, padding:'6px 10px', background:'rgba(255,255,255,.02)', borderRadius:8, marginBottom:4, opacity:.6 }}>
-                        <span style={{ fontSize:12, color:C.green }}>✅</span>
-                        <span style={{ fontSize:11, color:C.muted, flex:1 }}>{d.who}: „{d.comment}"</span>
-                        <span style={{ fontSize:10, color:C.faint }}>vyřešil {d.resolvedBy}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+          );})}
+        </div>
+      )}
+      {sub==='disputes'&&(
+        <div>
+          {totalOpen===0&&Object.keys(disputes).length===0&&<div style={{textAlign:'center',padding:50,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>✅</div>Žádné spory — vše čisté!</div>}
+          {Object.entries(disputes).map(([scoreKey,cellDisputes])=>{
+            const all=Object.entries(cellDisputes).sort((a,b)=>b[1].time-a[1].time);
+            const open=all.filter(([,d])=>!d.resolved);const resolved=all.filter(([,d])=>d.resolved);
+            const parts=scoreKey.split('__');const pn=parts[0]?.replace(/-/g,' ');const rn=parts[1]?.replace(/-/g,' ');const sv=scores[scoreKey]??'?';
+            if(!all.length)return null;
+            return(<div key={scoreKey} style={{...S.card,marginBottom:12,border:`1px solid ${open.length>0?'rgba(251,146,60,.4)':C.border}`,background:open.length>0?'rgba(251,146,60,.05)':'rgba(255,255,255,.02)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                <div style={{flex:1}}><div style={{fontWeight:800,fontSize:15}}>{pn}</div><div style={{fontSize:12,color:C.muted}}>{rn} · <span style={{color:C.cyan,fontWeight:800}}>{sv} bodů</span></div></div>
+                <div>{open.length>0?<div style={{background:'rgba(251,146,60,.2)',border:'1px solid rgba(251,146,60,.4)',borderRadius:16,padding:'3px 10px',fontSize:11,fontWeight:800,color:C.orange}}>⚠️ {open.length}</div>:<div style={{background:'rgba(74,222,128,.1)',border:'1px solid rgba(74,222,128,.3)',borderRadius:16,padding:'3px 10px',fontSize:11,fontWeight:800,color:C.green}}>✅</div>}</div>
               </div>
-            );
+              {open.map(([id,d])=>(<div key={id} style={{background:'rgba(251,146,60,.1)',border:'1px solid rgba(251,146,60,.3)',borderRadius:10,padding:'10px 12px',marginBottom:8}}>
+                <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                  <div style={{flex:1}}><div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}><span style={{fontWeight:800,fontSize:13,color:C.orange}}>⚠️ {d.who}</span><span style={{fontSize:10,color:C.muted}}>{new Date(d.time).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</span></div><div style={{fontSize:13,color:C.text}}>„{d.comment}"</div></div>
+                  <button onClick={()=>onResolve(scoreKey,id)} style={{background:'rgba(74,222,128,.15)',border:'1px solid rgba(74,222,128,.4)',color:C.green,borderRadius:8,cursor:'pointer',padding:'6px 10px',fontFamily:'inherit',fontSize:11,fontWeight:800,flexShrink:0}}>✅ Vyřešeno</button>
+                </div>
+              </div>))}
+              {resolved.length>0&&<div style={{marginTop:4}}>{resolved.map(([id,d])=><div key={id} style={{display:'flex',gap:8,padding:'6px 10px',background:'rgba(255,255,255,.02)',borderRadius:8,marginBottom:4,opacity:.6}}><span style={{fontSize:12,color:C.green}}>✅</span><span style={{fontSize:11,color:C.muted,flex:1}}>{d.who}: „{d.comment}"</span><span style={{fontSize:10,color:C.faint}}>vyřešil {d.resolvedBy}</span></div>)}</div>}
+            </div>);
           })}
-          <div style={{ fontSize:10, color:C.faint, textAlign:'center', marginTop:8 }}>
-            Spory jsou jen informační — řeší se dohodou v Messengeru 💬
-          </div>
+          <div style={{fontSize:10,color:C.faint,textAlign:'center',marginTop:8}}>Spory jsou informační — řeší se v Messengeru 💬</div>
         </div>
       )}
     </div>
   );
 }
 
-// ── GRAFY ────────────────────────────────────────────────────
-function Grafy({ players, rounds, scores }) {
-  if (!players.length || !rounds.length) return <p style={{ textAlign:'center', padding:60, color:C.muted }}>Přidej hráče a kola ve Správě</p>;
-  const palette = ['#38bdf8','#fbbf24','#4ade80','#f87171','#c084fc','#fb923c','#e879f9','#34d399','#818cf8','#f472b6','#a78bfa','#2dd4bf','#facc15','#60a5fa','#f97316'];
-
-  // Celkové body počítané aplikací
-  const totals = players.map(p => ({ name:p, total:rounds.reduce((s,r) => s+(scores[sk(p,r)]??0), 0) })).sort((a,b) => b.total-a.total);
-  const maxTotal = Math.max(...totals.map(t => t.total), 1);
-  const data = rounds.map((r, ri) => { const e = { round:r }; players.forEach(p => { e[p] = rounds.slice(0, ri+1).reduce((s, rr) => s+(scores[sk(p,rr)]??0), 0); }); return e; });
-  const W = 320, H = 180, PL = 38, PR = 8, PT = 10, PB = 26, iW = W-PL-PR, iH = H-PT-PB;
-  const maxVal = Math.max(...data.flatMap(d => players.map(p => d[p]||0)), 1);
-  const xPos = i => PL + i * (iW / Math.max(rounds.length-1, 1));
-  const yPos = v => PT + iH - (v/maxVal)*iH;
-  const roundStats = rounds.map(r => {
-    const pts = players.map(p => ({ name:p, pts:scores[sk(p,r)]??null })).filter(x => x.pts !== null);
-    const sorted = [...pts].sort((a,b) => b.pts-a.pts);
-    return { round:r, best:sorted[0], worst:sorted[sorted.length-1], avg:pts.length?Math.round(pts.reduce((s,x)=>s+x.pts,0)/pts.length):null };
-  }).filter(x => x.best);
-  return (
+/* ── GRAFY ──────────────────────────────────────────── */
+function Grafy({players,rounds,scores}){
+  if(!players.length||!rounds.length)return<p style={{textAlign:'center',padding:60,color:C.muted}}>Přidej hráče a kola ve Správě</p>;
+  const palette=['#38bdf8','#fbbf24','#4ade80','#f87171','#c084fc','#fb923c','#e879f9','#34d399','#818cf8','#f472b6','#a78bfa','#2dd4bf','#facc15','#60a5fa','#f97316'];
+  const totals=players.map(p=>({name:p,total:rounds.reduce((s,r)=>s+(scores[sk(p,r)]??0),0)})).sort((a,b)=>b.total-a.total);
+  const maxT=Math.max(...totals.map(t=>t.total),1);
+  const cumData=players.map((p,i)=>{let cum=0;return{name:p,color:palette[i%palette.length],pts:rounds.map(r=>{cum+=(scores[sk(p,r)]??0);return cum;})};});
+  const maxCum=Math.max(...cumData.flatMap(d=>d.pts),1);
+  const W=320,H=160,PAD=30;
+  const x=(i)=>PAD+(i/(Math.max(rounds.length-1,1)))*(W-PAD*2);
+  const y=(v)=>H-PAD-(v/maxCum)*(H-PAD*2);
+  return(
     <div>
-      {/* Celkové body — počítané aplikací */}
-      <div style={{ ...S.card, marginBottom:12, border:'1px solid rgba(251,191,36,.2)', background:'rgba(251,191,36,.04)' }}>
+      {/* Celkové body */}
+      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(251,191,36,.2)',background:'rgba(251,191,36,.04)'}}>
         <span style={S.lbl}>⭐ CELKOVÉ BODY — POČÍTÁNO APLIKACÍ</span>
-        {totals.map((t, i) => {
-          const topCol = [C.gold, C.silver, C.bronze];
-          const col = topCol[i] || C.cyan;
-          return (
-            <div key={t.name} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-              <div style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:i<3?14:11, fontWeight:900, color:i<3?col:C.muted }}>
-                {i < 3 ? MEDALS[i] : i+1}
-              </div>
-              <div style={{ fontSize:14, fontWeight:700, minWidth:80 }}>{t.name}</div>
-              <div style={{ flex:1, height:6, background:'rgba(255,255,255,.05)', borderRadius:3, overflow:'hidden' }}>
-                <div style={{ height:'100%', width:`${(t.total/maxTotal)*100}%`, borderRadius:3, background:i<3?`linear-gradient(90deg,${col}88,${col})`:C.blue, transition:'width .7s' }}/>
-              </div>
-              <div style={{ fontWeight:900, fontSize:18, color:i<3?col:C.cyan, minWidth:36, textAlign:'right' }}>{t.total}</div>
-              <div style={{ fontSize:9, color:C.muted }}>b</div>
-            </div>
-          );
-        })}
-        <div style={{ fontSize:10, color:C.faint, marginTop:4, textAlign:'right' }}>Součet všech zadaných skóre · automaticky</div>
+        {totals.map((t,i)=>{const col=[C.gold,C.silver,C.bronze][i]||C.cyan;return(
+          <div key={t.name} style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+            <div style={{width:22,height:22,borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:i<3?14:11,fontWeight:900,color:i<3?col:C.muted}}>{i<3?MEDALS[i]:i+1}</div>
+            <div style={{fontSize:14,fontWeight:700,minWidth:80}}>{t.name}</div>
+            <div style={{flex:1,height:6,background:'rgba(255,255,255,.05)',borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${(t.total/maxT)*100}%`,borderRadius:3,background:i<3?`linear-gradient(90deg,${col}88,${col})`:C.blue,transition:'width .7s'}}/></div>
+            <div style={{fontWeight:900,fontSize:18,color:i<3?col:C.cyan,minWidth:36,textAlign:'right'}}>{t.total}</div>
+            <div style={{fontSize:9,color:C.muted}}>b</div>
+          </div>
+        );})}
+        <div style={{fontSize:10,color:C.faint,marginTop:4,textAlign:'right'}}>Součet všech zadaných skóre · automaticky</div>
       </div>
-
       {/* Line chart */}
-      <div style={{ ...S.card, marginBottom:12 }}>
+      <div style={{...S.card,marginBottom:12}}>
         <span style={S.lbl}>VÝVOJ — KUMULATIVNÍ BODY</span>
-        <div style={{ overflowX:'auto' }}>
-          <svg width={Math.max(W, rounds.length*55)} height={H} style={{ display:'block' }}>
-            {[0,.25,.5,.75,1].map(f => (
-              <g key={f}>
-                <line x1={PL} y1={PT+iH*f} x2={W-PR} y2={PT+iH*f} stroke="rgba(255,255,255,.06)" strokeWidth={1}/>
-                <text x={PL-4} y={PT+iH*f+4} textAnchor="end" fontSize={8} fill={C.muted}>{Math.round(maxVal*(1-f))}</text>
-              </g>
-            ))}
-            {rounds.map((r,i) => <text key={r} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={8} fill={C.muted}>{r.length>7?r.slice(0,7)+'…':r}</text>)}
-            {players.map((p, pi) => {
-              if (rounds.length < 2) return null;
-              const pts = data.map((d,i) => ({ x:xPos(i), y:yPos(d[p]||0) }));
-              const path = pts.map((pt,i) => `${i===0?'M':'L'}${pt.x},${pt.y}`).join(' ');
-              const col = palette[pi % palette.length];
-              return (
-                <g key={p}>
-                  <path d={path} stroke={col} strokeWidth={2} fill="none" strokeLinejoin="round" strokeLinecap="round"/>
-                  {pts.map((pt,i) => <circle key={i} cx={pt.x} cy={pt.y} r={3} fill={col}/>)}
-                  <text x={pts[pts.length-1].x+4} y={pts[pts.length-1].y+4} fontSize={8} fill={col} fontWeight={700}>{p}</text>
-                </g>
-              );
-            })}
+        <div style={{overflowX:'auto'}}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',maxWidth:W,display:'block'}}>
+            {rounds.map((_,i)=><line key={i} x1={x(i)} y1={PAD} x2={x(i)} y2={H-PAD} stroke="rgba(255,255,255,.04)" strokeWidth={1}/>)}
+            {cumData.map(d=><polyline key={d.name} points={d.pts.map((v,i)=>`${x(i)},${y(v)}`).join(' ')} fill="none" stroke={d.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={.85}/>)}
+            {cumData.map(d=>{const last=d.pts[d.pts.length-1];return last>0?<text key={d.name} x={x(rounds.length-1)+3} y={y(last)+4} fill={d.color} fontSize={7}>{d.name.split(' ')[0]}</text>:null;})}
+            {rounds.map((r,i)=><text key={r} x={x(i)} y={H-4} fill={C.muted} fontSize={6} textAnchor="middle">{r}</text>)}
           </svg>
         </div>
       </div>
-      <span style={S.lbl}>STATISTIKY PO KOLECH</span>
-      {[...roundStats].reverse().map(rs => (
-        <div key={rs.round} style={{ ...S.card, marginBottom:8 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-            <div style={{ fontWeight:800, fontSize:15 }}>🏒 {rs.round}</div>
-            {rs.avg !== null && <div style={{ fontSize:11, color:C.muted }}>průměr <span style={{ color:C.cyan, fontWeight:700 }}>{rs.avg} b</span></div>}
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            {rs.best && <div style={{ background:'rgba(251,191,36,.1)', borderRadius:10, padding:'8px 10px', border:'1px solid rgba(251,191,36,.25)' }}>
-              <div style={{ fontSize:9, color:C.gold, letterSpacing:2, marginBottom:2 }}>🥇 NEJLEPŠÍ</div>
-              <div style={{ fontWeight:700, fontSize:13 }}>{rs.best.name}</div>
-              <div style={{ fontSize:16, fontWeight:900, color:C.gold }}>{rs.best.pts} b</div>
-            </div>}
-            {rs.worst && rs.worst.name !== rs.best?.name && <div style={{ background:'rgba(248,113,113,.08)', borderRadius:10, padding:'8px 10px', border:'1px solid rgba(248,113,113,.2)' }}>
-              <div style={{ fontSize:9, color:C.red, letterSpacing:2, marginBottom:2 }}>💀 NEJHORŠÍ</div>
-              <div style={{ fontWeight:700, fontSize:13 }}>{rs.worst.name}</div>
-              <div style={{ fontSize:16, fontWeight:900, color:C.red }}>{rs.worst.pts} b</div>
-            </div>}
-          </div>
-        </div>
-      ))}
-      {roundStats.length === 0 && <p style={{ textAlign:'center', padding:30, color:C.muted }}>Zadej skóre pro zobrazení grafů</p>}
+      {/* Per-round stats */}
+      <div style={{...S.card}}>
+        <span style={S.lbl}>BODY PO KOLECH</span>
+        {[...rounds].reverse().map(r=>{const pts=players.map(p=>({name:p,pts:scores[sk(p,r)]??null})).filter(x=>x.pts!==null).sort((a,b)=>b.pts-a.pts);if(!pts.length)return null;const max=pts[0].pts||1;return(<div key={r} style={{marginBottom:12}}><div style={{fontSize:12,fontWeight:800,color:C.cyan,marginBottom:6}}>🏒 {r}</div>{pts.map((p,i)=><div key={p.name} style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}><div style={{fontSize:11,color:C.muted,width:16,textAlign:'right'}}>{i+1}</div><div style={{fontSize:12,fontWeight:700,minWidth:60}}>{p.name}</div><div style={{flex:1,height:4,background:'rgba(255,255,255,.05)',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${(p.pts/max)*100}%`,borderRadius:2,background:i===0?C.gold:C.blue}}/></div><div style={{fontSize:12,fontWeight:800,color:i===0?C.gold:C.text,minWidth:28,textAlign:'right'}}>{p.pts}</div></div>)}</div>);})}</div>
     </div>
   );
 }
 
-// ── SQUAD ────────────────────────────────────────────────────
-function Tile({ p }) { const pos = POS[p.pos]||POS['Ú']; return <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, minWidth:70, maxWidth:85, position:'relative' }}>{p.captain && <div style={{ position:'absolute', top:-7, right:-3, background:C.gold, color:'#000', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', zIndex:1 }}>C</div>}<div style={{ width:40, height:40, borderRadius:'50%', background:pos.bg, border:`2px solid ${pos.color}66`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:900, color:pos.color }}>{p.pos}</div><div style={{ fontSize:9, fontWeight:700, textAlign:'center', color:C.text, lineHeight:1.2, maxWidth:78, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name.split(' ')[0]}</div><div style={{ fontSize:9, color:pos.color, fontWeight:900 }}>{p.fp}<span style={{ color:C.muted, fontSize:8 }}>fb</span></div><div style={{ fontSize:8, color:C.muted }}>{p.goals}G {p.assists}A</div></div>; }
-function Rink({ players }) { const G=players.filter(p=>p.pos==='B'),D=players.filter(p=>p.pos==='O'),F=players.filter(p=>p.pos==='Ú'); const Row=({group,lbl})=><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}><div style={{fontSize:8,letterSpacing:3,color:'#334155'}}>{lbl}</div><div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{group.map((p,i)=><Tile key={i} p={p}/>)}</div></div>; return <div style={{background:'linear-gradient(180deg,rgba(0,40,80,.5),rgba(0,20,50,.7))',border:'1px solid rgba(56,189,248,.12)',borderRadius:16,padding:'18px 12px',position:'relative',overflow:'hidden'}}><div style={{position:'absolute',inset:0,pointerEvents:'none'}}><div style={{position:'absolute',top:'50%',left:'8%',right:'8%',height:1,background:'rgba(220,38,38,.12)'}}/><div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',width:70,height:70,borderRadius:'50%',border:'1px solid rgba(220,38,38,.1)'}}/></div><div style={{display:'flex',flexDirection:'column',gap:16,position:'relative'}}>{F.length>0&&<Row group={F} lbl="ÚTOČNÍCI"/>}{D.length>0&&<Row group={D} lbl="OBRÁNCI"/>}{G.length>0&&<Row group={G} lbl="BRANKÁŘ"/>}</div></div>; }
-
-function Squads({ players, squads, onSquads, myName, toast }) {
-  const [owner,setOwner]=useState(myName||players[0]||''); const [sub,setSub]=useState('current');
-  const [kolo,setKolo]=useState(''); const [input,setInput]=useState(''); const [busy,setBusy]=useState(false); const [err,setErr]=useState('');
-  const fileRef=useRef(); const apiKey=()=>localStorage.getItem('hk26_apikey')||'';
-  useEffect(()=>{if(owner&&squads[owner]){const ks=Object.keys(squads[owner].rounds||{});if(ks.length)setKolo(ks[ks.length-1]);}},[owner]);
-  const od=squads[owner]||{rounds:{}}; const rounds=Object.keys(od.rounds||{});
-  const active=od.rounds?.[kolo]||od.rounds?.[rounds[rounds.length-1]]||null; const activeK=od.rounds?.[kolo]?kolo:rounds[rounds.length-1]||'';
-  const map={}; Object.values(od.rounds||{}).forEach(rd=>{(rd.players||[]).forEach(p=>{if(!map[p.name])map[p.name]={...p,fp:0,goals:0,assists:0,pts:0,n:0,cap:0};map[p.name].fp+=p.fp;map[p.name].goals+=p.goals;map[p.name].assists+=p.assists;map[p.name].pts+=p.pts;map[p.name].n++;if(p.captain)map[p.name].cap++;});});
-  const stats=Object.values(map).sort((a,b)=>b.fp-a.fp); const maxFP=Math.max(...stats.map(s=>s.fp),1);
-  async function upload(e){const file=e.target.files?.[0];if(!file||!input.trim()){setErr('Zadej název kola!');return;}if(!apiKey()){setErr('Nastav API klíč ve Správě!');return;}setBusy(true);setErr('');try{const img=await b64(file);const data=await aiParse(img,apiKey());const rk=input.trim();const upd={...squads,[owner]:{rounds:{...(squads[owner]?.rounds||{}),[rk]:{totalPoints:data.totalPoints||0,players:data.players||[]}}}};await onSquads(upd,`${owner} · ${rk} (${data.players?.length||0} hráčů)`);setKolo(rk);setInput('');setSub('current');toast(`✓ ${owner} – ${rk}: ${data.players?.length||0} hráčů`);}catch(ex){setErr('Chyba: '+ex.message);}finally{setBusy(false);if(fileRef.current)fileRef.current.value='';}}
+/* ── STATISTICS (formerly Soupisky) ─────────────────── */
+function Statistics({players,squads,onSquads,myName,toast}){
+  const [text,setText]=useState('');const [uploading,setUploading]=useState(false);const [imgPrev,setImgPrev]=useState(null);const fileRef=useRef();
+  const mySquad=squads[fk(myName)]||{};
+  async function handleFile(e){const f=e.target.files?.[0];if(!f)return;setUploading(true);try{const compressed=await compressImage(f);setImgPrev(compressed);const sq={...squads,[fk(myName)]:{img:compressed,savedAt:Date.now()}};onSquads(sq,'Nahrál soupisku (foto)');toast('✓ Soupiska uložena');}catch(ex){toast('Chyba: '+ex.message);}finally{setUploading(false);if(fileRef.current)fileRef.current.value='';}}
   return(
     <div>
-      <div style={{marginBottom:12}}><span style={S.lbl}>HRÁČ</span><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{players.map(p=><button key={p} onClick={()=>setOwner(p)} style={{padding:'7px 13px',borderRadius:20,cursor:'pointer',border:'none',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(owner===p)}}>{p}</button>)}</div></div>
-      <div style={{display:'flex',gap:3,marginBottom:14,background:'rgba(255,255,255,.03)',borderRadius:10,padding:3,border:`1px solid ${C.border}`}}>{[['current','⚡'],['history','📅'],['stats','📊'],['upload','📸']].map(([k,l])=><button key={k} onClick={()=>setSub(k)} style={{flex:1,padding:'8px 0',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontSize:17,background:sub===k?'linear-gradient(135deg,#1d4ed8,#0369a1)':'transparent',boxShadow:sub===k?'0 2px 10px rgba(29,78,216,.4)':'none'}}>{l}</button>)}</div>
-      {sub==='current'&&<div>{rounds.length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>{rounds.map(r=><button key={r} onClick={()=>setKolo(r)} style={{padding:'5px 12px',borderRadius:16,cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,border:'none',...S.btn(activeK===r,C.cyan)}}>{r}</button>)}</div>}{active?<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}><span style={{fontSize:12,color:C.muted}}>{activeK}</span><div style={{background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.35)',borderRadius:10,padding:'6px 14px',display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:9,color:C.gold,letterSpacing:2}}>CELKEM</span><span style={{fontSize:24,fontWeight:900,color:C.gold}}>{active.totalPoints}</span><span style={{fontSize:9,color:'#d97706'}}>fb</span></div></div><Rink players={active.players||[]}/><div style={{marginTop:12}}>{(active.players||[]).map((p,i)=>{const pos=POS[p.pos]||POS['Ú'];return(<div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',marginBottom:5,borderRadius:10,background:p.captain?'rgba(251,191,36,.07)':'rgba(255,255,255,.02)',border:p.captain?'1px solid rgba(251,191,36,.2)':`1px solid ${C.border}`}}><Chip pos={p.pos}/><div style={{flex:1,fontWeight:700,fontSize:14}}>{p.captain&&<span style={{background:C.gold,color:'#000',borderRadius:4,padding:'1px 5px',fontSize:9,fontWeight:900,marginRight:5}}>C</span>}{p.name}</div><div style={{fontSize:12,color:C.muted,display:'flex',gap:10}}><span>{p.goals}G</span><span>{p.assists}A</span></div><div style={{fontWeight:900,fontSize:16,color:pos.color}}>{p.fp}<span style={{fontSize:9,color:C.muted}}> fb</span></div></div>);})}</div></>:<p style={{textAlign:'center',padding:50,color:C.muted}}>Zatím žádná data — nahraj screenshot 📸</p>}</div>}
-      {sub==='history'&&<div>{!rounds.length&&<p style={{textAlign:'center',padding:50,color:C.muted}}>Žádná historie</p>}{rounds.map(r=>{const rd=od.rounds[r];return(<div key={r} style={{marginBottom:12,...S.card,padding:0,overflow:'hidden'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 16px',background:'rgba(29,78,216,.2)',borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:800,fontSize:15}}>🏒 {r}</span><span style={{fontWeight:900,fontSize:20,color:C.gold}}>{rd.totalPoints} <span style={{fontSize:10,color:'#d97706'}}>fb</span></span></div><div style={{padding:'10px 12px',display:'flex',gap:8,flexWrap:'wrap'}}>{(rd.players||[]).map((p,i)=><Tile key={i} p={p}/>)}</div></div>);})}</div>}
-      {sub==='stats'&&<div>{rounds.length>0&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>{[['🏒','Kola',rounds.length,C.cyan],['⚽','Góly',stats.reduce((s,p)=>s+p.goals,0),C.green],['🅰','Asistence',stats.reduce((s,p)=>s+p.assists,0),C.orange],['⭐','Fantasy body',stats.reduce((s,p)=>s+p.fp,0),C.gold],['📈','Průměr/kolo',rounds.length?Math.round(Object.values(od.rounds).reduce((s,r)=>s+(r.totalPoints||0),0)/rounds.length):0,C.purple],['👑','Top hráč',stats[0]?.name?.split(' ')[0]||'—','#f472b6']].map(([ic,lb,v,col])=><div key={lb} style={{...S.card,padding:'10px 12px',border:`1px solid ${col}22`,borderRadius:12}}><div style={{fontSize:18,marginBottom:2}}>{ic}</div><div style={{fontSize:8,color:C.muted,letterSpacing:1}}>{lb.toUpperCase()}</div><div style={{fontWeight:900,fontSize:15,color:col,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v}</div></div>)}</div>}{stats.map(p=>{const pos=POS[p.pos]||POS['Ú'];return(<div key={p.name} style={{...S.card,marginBottom:10}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}><Chip pos={p.pos}/><div style={{flex:1,fontWeight:800,fontSize:15}}>{p.name}</div><div style={{fontSize:10,color:C.muted}}>{p.n}×</div>{p.cap>0&&<span style={{background:C.gold,color:'#000',borderRadius:4,padding:'1px 6px',fontSize:9,fontWeight:900}}>C×{p.cap}</span>}</div><div style={{marginBottom:8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:10,color:C.muted}}>Fantasy body</span><span style={{fontSize:13,fontWeight:800,color:pos.color}}>{p.fp}</span></div><div style={{height:4,background:'rgba(255,255,255,.05)',borderRadius:2}}><div style={{height:'100%',width:`${(p.fp/maxFP)*100}%`,background:pos.color,borderRadius:2}}/></div></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>{[['⚽ Góly',p.goals,C.green],['🅰 Asist.',p.assists,C.orange],['📊 Body',p.pts,C.cyan]].map(([l,v,c])=><div key={l} style={{textAlign:'center',background:`${c}11`,borderRadius:8,padding:'5px 0',border:`1px solid ${c}18`}}><div style={{fontWeight:900,fontSize:18,color:c}}>{v}</div><div style={{fontSize:9,color:C.muted}}>{l}</div></div>)}</div></div>);})}</div>}
-      {sub==='upload'&&<div><div style={{...S.card,marginBottom:12,border:'1px solid rgba(59,130,246,.25)',background:'rgba(29,78,216,.1)'}}><span style={S.lbl}>NAHRÁT PRO: {owner.toUpperCase()}</span><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Název kola</div><input value={input} onChange={e=>setInput(e.target.value)} placeholder="Kolo 5…" style={S.input}/></div><label style={{display:'block',border:'2px dashed rgba(56,189,248,.3)',borderRadius:12,padding:'22px 16px',textAlign:'center',cursor:'pointer',background:'rgba(56,189,248,.04)'}}><input ref={fileRef} type="file" accept="image/*" onChange={upload} style={{display:'none'}}/>{busy?<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}><Spinner/><span style={{fontSize:13,color:C.cyan,fontWeight:700}}>AI čte screenshot…</span></div>:<div><div style={{fontSize:30,marginBottom:6}}>📸</div><div style={{fontSize:13,color:C.cyan,fontWeight:700}}>Klepni a vyber fotku</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>AI přečte squad automaticky</div></div>}</label>{err&&<div style={{background:'rgba(248,113,113,.12)',border:'1px solid rgba(248,113,113,.3)',borderRadius:8,padding:'8px 12px',fontSize:12,color:C.red,marginTop:8}}>{err}</div>}</div>{!apiKey()&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:10,padding:'10px 14px',fontSize:12,color:C.gold}}>⚠️ Pro AI funkci nastav Anthropic API klíč ve Správě</div>}</div>}
+      <div style={{...S.card,marginBottom:12}}>
+        <span style={S.lbl}>MÉ STATISTIKY & SOUPISKA</span>
+        <label style={{display:'block',border:`2px dashed ${C.border}`,borderRadius:12,padding:'16px',textAlign:'center',cursor:'pointer',background:'rgba(255,255,255,.02)'}}>
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:'none'}}/>
+          {uploading?<Spinner/>:mySquad.img?<div><img src={imgPrev||mySquad.img} alt="soupiska" style={{width:'100%',borderRadius:10,marginBottom:8}}/><div style={{fontSize:11,color:C.muted}}>📸 Klepni pro aktualizaci</div></div>:<div><div style={{fontSize:32,marginBottom:6}}>📸</div><div style={{fontSize:13,color:C.muted}}>Nahraj screenshot soupisky z Tipsportu</div></div>}
+        </label>
+      </div>
+      {Object.entries(squads).filter(([k])=>k!==fk(myName)).map(([k,sq])=>(sq?.img?
+        <div key={k} style={{...S.card,marginBottom:12,padding:0,overflow:'hidden'}}>
+          <div style={{padding:'10px 14px',background:'rgba(255,255,255,.04)',borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:800,fontSize:14}}>{k.replace(/-/g,' ')}</div></div>
+          <img src={sq.img} alt={k} style={{width:'100%',display:'block'}}/>
+        </div>:null))}
     </div>
   );
 }
 
-// ── SQUAD IMPORT ─────────────────────────────────────────────
-function SquadImport({ myName, rounds, squadImports, squadRounds, onImport, onPublish, toast }) {
-  const [selRound, setSelRound] = useState(rounds[rounds.length-1] || '');
-  const [uploading, setUploading] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [confirmPublish, setConfirmPublish] = useState(false);
-  const fileRef = useRef();
-  const isAdmin = ADMINS.includes(myName);
-
-  useEffect(() => { if (rounds.length) setSelRound(rounds[rounds.length-1]); }, [rounds]);
-
-  const rk = fk(selRound);
-  const published = squadRounds[rk]?.published || false;
-  const myImport = squadImports[rk]?.[fk(myName)];
-  const allImports = squadImports[rk] || {};
-  const uploadedCount = Object.keys(allImports).length;
-  const totalPlayers = rounds.length > 0 ? uploadedCount : 0;
-
-  async function handleFile(e) {
-    const file = e.target.files?.[0]; if (!file) return;
-    setUploading(true);
-    try {
-      const compressed = await compressImage(file);
-      setPreview(compressed);
-      await onImport(rk, fk(myName), compressed);
-      toast('✓ Squad nahrán — čeká na zveřejnění');
-    } catch(ex) { toast('Chyba: ' + ex.message); }
-    finally { setUploading(false); if(fileRef.current) fileRef.current.value=''; }
-  }
-
-  async function handlePublish() {
-    await onPublish(rk, myName);
-    setConfirmPublish(false);
-    toast('🏒 Kolo zveřejněno — všichni vidí sestavy!');
-  }
-
-  return (
+/* ── HISTORY ────────────────────────────────────────── */
+function History({activity}){
+  const icons={score:{ic:'📊',col:C.cyan},player:{ic:'👤',col:C.green},round:{ic:'🏒',col:C.orange},squad:{ic:'📸',col:C.purple},delete:{ic:'🗑',col:C.red},join:{ic:'🆕',col:C.gold},dispute:{ic:'⚠️',col:C.orange},resolve:{ic:'✅',col:C.green},squadbuild:{ic:'🏒',col:'#a78bfa'},publish:{ic:'🔓',col:'#7c3aed'}};
+  const items=Object.values(activity).sort((a,b)=>b.time-a.time);
+  if(!items.length)return<p style={{textAlign:'center',padding:60,color:C.muted}}>Žádná aktivita</p>;
+  return(
     <div>
-      {/* Header banner */}
-      <div style={{ background:'linear-gradient(135deg,rgba(139,92,246,.2),rgba(79,70,229,.15))', border:'1px solid rgba(139,92,246,.4)', borderRadius:14, padding:'14px 16px', marginBottom:14 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-          <div style={{ fontSize:24 }}>🔒</div>
-          <div>
-            <div style={{ fontWeight:900, fontSize:16, color:'#a78bfa' }}>TAJNÉ SESTAVY</div>
-            <div style={{ fontSize:11, color:'#7c3aed', letterSpacing:1 }}>SQUAD IMPORT — PŘED KOLEM</div>
+      {items.map((a,i)=>{const ic=icons[a.type]||{ic:'•',col:C.muted};return(
+        <div key={i} style={{display:'flex',gap:10,padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+          <div style={{width:32,height:32,borderRadius:10,background:`${ic.col}22`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{ic.ic}</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,fontWeight:700}}><span style={{color:ic.col}}>{a.who}</span> <span style={{color:C.text}}>{a.what}</span></div>
+            {a.detail&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{a.detail}</div>}
           </div>
+          <div style={{fontSize:10,color:C.faint,flexShrink:0}}>{new Date(a.time).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
         </div>
-        <div style={{ fontSize:12, color:'#c4b5fd', lineHeight:1.6 }}>
-          Každý nahraje svůj squad tajně. <strong style={{ color:'#a78bfa' }}>Nikdo nevidí čí squad</strong> — ani admini — dokud admin nestiskne „Zveřejnit kolo". Pak se všechny sestavy odhalí najednou.
-        </div>
-      </div>
-
-      {/* Round selector */}
-      {rounds.length > 0 && (
-        <div style={{ marginBottom:14 }}>
-          <span style={S.lbl}>KOLO</span>
-          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-            {rounds.map(r => (
-              <button key={r} onClick={() => { setSelRound(r); setPreview(null); setConfirmPublish(false); }}
-                style={{ padding:'7px 14px', borderRadius:20, cursor:'pointer', border:'none', fontFamily:'inherit', fontSize:12, fontWeight:700,
-                  ...S.btn(selRound===r, '#7c3aed') }}>
-                {r} {squadRounds[fk(r)]?.published ? '✅' : ''}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {rounds.length === 0 && <p style={{ textAlign:'center', padding:40, color:C.muted }}>Přidej kola ve Správě</p>}
-
-      {selRound && (
-        <>
-          {/* Status bar */}
-          <div style={{ ...S.card, marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between',
-            border: published ? '1px solid rgba(74,222,128,.35)' : '1px solid rgba(139,92,246,.25)',
-            background: published ? 'rgba(74,222,128,.06)' : 'rgba(139,92,246,.06)' }}>
-            <div>
-              <div style={{ fontSize:9, letterSpacing:3, color: published ? C.green : '#a78bfa', marginBottom:2 }}>
-                {published ? '✅ ZVEŘEJNĚNO' : '🔒 SKRYTO'}
-              </div>
-              <div style={{ fontWeight:700, fontSize:15 }}>{selRound}</div>
-              <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
-                {uploadedCount} {uploadedCount === 1 ? 'hráč nahrál' : uploadedCount < 5 ? 'hráči nahráli' : 'hráčů nahrálo'} squad
-                {!published && <span style={{ color:'#7c3aed' }}> · sestavy skryté</span>}
-              </div>
-            </div>
-            {/* Progress dots */}
-            <div style={{ textAlign:'right' }}>
-              <div style={{ fontSize:24, fontWeight:900, color: published ? C.green : '#a78bfa' }}>{uploadedCount}</div>
-              <div style={{ fontSize:9, color:C.muted }}>nahráno</div>
-            </div>
-          </div>
-
-          {/* My upload section */}
-          <div style={{ ...S.card, marginBottom:14 }}>
-            <span style={S.lbl}>MŮJ SQUAD — {myName.toUpperCase()}</span>
-            {myImport ? (
-              <div>
-                <div style={{ position:'relative', marginBottom:10 }}>
-                  <img src={preview || myImport.imageBase64} alt="Můj squad"
-                    style={{ width:'100%', borderRadius:10, border:'1px solid rgba(139,92,246,.3)', display:'block' }}/>
-                  <div style={{ position:'absolute', top:8, right:8, background:'rgba(74,222,128,.85)', color:'#fff', borderRadius:16, padding:'3px 10px', fontSize:11, fontWeight:800 }}>✓ Nahráno</div>
-                </div>
-                <label style={{ display:'block', border:`1px dashed ${C.border}`, borderRadius:10, padding:'10px', textAlign:'center', cursor:'pointer', background:C.bg3 }}>
-                  <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:'none' }}/>
-                  <span style={{ fontSize:12, color:C.muted }}>📸 Nahrát znovu (přepíše)</span>
-                </label>
-              </div>
-            ) : (
-              <label style={{ display:'block', border:'2px dashed rgba(139,92,246,.4)', borderRadius:12, padding:'28px 16px', textAlign:'center', cursor:'pointer', background:'rgba(139,92,246,.05)' }}>
-                <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:'none' }}/>
-                {uploading ? (
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
-                    <Spinner/><span style={{ fontSize:13, color:'#a78bfa', fontWeight:700 }}>Nahrávám…</span>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize:36, marginBottom:8 }}>📸</div>
-                    <div style={{ fontSize:14, color:'#a78bfa', fontWeight:700 }}>Klepni a vyber screenshot</div>
-                    <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>Fotka soupisky z Tipsport Fantasy</div>
-                    <div style={{ fontSize:10, color:'#4c1d95', marginTop:6, fontWeight:700 }}>🔒 Ostatní ji neuvidí dokud admin nezveřejní kolo</div>
-                  </div>
-                )}
-              </label>
-            )}
-          </div>
-
-          {/* Published — show all squads */}
-          {published && (
-            <div>
-              <span style={S.lbl}>SESTAVY VŠECH — {selRound.toUpperCase()}</span>
-              {Object.entries(allImports).map(([playerKey, data]) => (
-                <div key={playerKey} style={{ ...S.card, marginBottom:12, padding:0, overflow:'hidden' }}>
-                  <div style={{ padding:'10px 14px', background:'rgba(139,92,246,.15)', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                    <div style={{ fontWeight:800, fontSize:15 }}>{playerKey.replace(/-/g,' ')}</div>
-                    <div style={{ fontSize:10, color:C.muted }}>{new Date(data.uploadedAt).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
-                  </div>
-                  <img src={data.imageBase64} alt={playerKey} style={{ width:'100%', display:'block' }}/>
-                </div>
-              ))}
-              {uploadedCount === 0 && <p style={{ textAlign:'center', padding:30, color:C.muted }}>Nikdo nenahrál squad pro toto kolo</p>}
-            </div>
-          )}
-
-          {/* Not published — mystery view */}
-          {!published && uploadedCount > 0 && (
-            <div style={{ ...S.card, border:'1px solid rgba(139,92,246,.2)', background:'rgba(139,92,246,.04)' }}>
-              <div style={{ fontSize:10, letterSpacing:3, color:'#a78bfa', marginBottom:10 }}>KDO UŽ NAHRÁL ({uploadedCount})</div>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-                {Object.keys(allImports).map(pk => (
-                  <div key={pk} style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(139,92,246,.12)', border:'1px solid rgba(139,92,246,.25)', borderRadius:20, padding:'5px 12px' }}>
-                    <span style={{ fontSize:14 }}>✅</span>
-                    <span style={{ fontSize:13, fontWeight:700 }}>{pk.replace(/-/g,' ')}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize:10, color:'#4c1d95', marginTop:10, textAlign:'center' }}>
-                🔒 Fotky jsou skryté — odhalí se po zveřejnění adminem
-              </div>
-            </div>
-          )}
-
-          {/* Admin publish button */}
-          {isAdmin && !published && (
-            <div style={{ marginTop:14 }}>
-              {!confirmPublish ? (
-                <button onClick={() => setConfirmPublish(true)}
-                  style={{ width:'100%', padding:14, border:'none', borderRadius:12, cursor:'pointer', fontFamily:'inherit', fontSize:15, fontWeight:900, letterSpacing:1,
-                    background:'linear-gradient(135deg,#7c3aed,#4f46e5)', color:'#fff', boxShadow:'0 4px 20px rgba(124,58,237,.4)' }}>
-                  🏒 ZVEŘEJNIT KOLO — {selRound.toUpperCase()}
-                </button>
-              ) : (
-                <div style={{ ...S.card, border:'1px solid rgba(124,58,237,.4)', background:'rgba(124,58,237,.1)' }}>
-                  <div style={{ fontSize:14, fontWeight:700, color:'#a78bfa', marginBottom:8, textAlign:'center' }}>
-                    Opravdu zveřejnit sestavy pro „{selRound}"?
-                  </div>
-                  <div style={{ fontSize:12, color:C.muted, marginBottom:12, textAlign:'center' }}>
-                    Všechny nahrané fotky se najednou zobrazí všem členům skupinky. Toto nelze vrátit.
-                  </div>
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={handlePublish}
-                      style={{ flex:1, padding:12, border:'none', borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontSize:14, fontWeight:900,
-                        background:'linear-gradient(135deg,#7c3aed,#4f46e5)', color:'#fff' }}>
-                      ✅ ANO, ZVEŘEJNIT
-                    </button>
-                    <button onClick={() => setConfirmPublish(false)}
-                      style={{ flex:1, padding:12, background:C.bg3, border:`1px solid ${C.border}`, color:C.muted, borderRadius:10, cursor:'pointer', fontFamily:'inherit', fontWeight:700 }}>
-                      Zrušit
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div style={{ fontSize:10, color:'#4c1d95', textAlign:'center', marginTop:8 }}>
-                Admini: {ADMINS.join(', ')}
-              </div>
-            </div>
-          )}
-
-          {isAdmin && published && (
-            <div style={{ textAlign:'center', padding:'12px 0', fontSize:11, color:C.green }}>
-              ✅ Kolo zveřejnil {squadRounds[rk]?.publishedBy} · {squadRounds[rk]?.publishedAt ? new Date(squadRounds[rk].publishedAt).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'}) : ''}
-            </div>
-          )}
-        </>
-      )}
+      );})}
     </div>
   );
 }
 
-// ── HISTORY ──────────────────────────────────────────────────
-function History({ activity }) {
-  const entries = Object.entries(activity).map(([id,v]) => ({id,...v})).sort((a,b) => b.time-a.time).slice(0,100);
-  const icons = { score:{ic:'📊',col:C.cyan}, player:{ic:'👤',col:C.green}, round:{ic:'🏒',col:C.orange}, squad:{ic:'📸',col:C.purple}, delete:{ic:'🗑',col:C.red}, join:{ic:'🆕',col:C.gold}, dispute:{ic:'⚠️',col:C.orange}, resolve:{ic:'✅',col:C.green}, squadimport:{ic:'🔒',col:'#a78bfa'}, publish:{ic:'🔓',col:'#7c3aed'} };
-  const fmt = ts => { const d=new Date(ts), diff=Math.floor((new Date()-d)/1000); if(diff<60) return'před '+diff+'s'; if(diff<3600) return'před '+Math.floor(diff/60)+'min'; if(diff<86400) return'před '+Math.floor(diff/3600)+'h'; return d.toLocaleDateString('cs',{day:'numeric',month:'numeric'})+' '+d.toLocaleTimeString('cs',{hour:'2-digit',minute:'2-digit'}); };
-  if (!entries.length) return <div style={{ textAlign:'center', padding:60, color:C.muted }}><div style={{ fontSize:32, marginBottom:8 }}>📋</div>Zatím žádná aktivita</div>;
-  return (
+/* ── MANAGE ─────────────────────────────────────────── */
+function Manage({players,rounds,squads,myName,toast,settings,onSettings,onPlayers,onRounds,onScoreDel,onSquads}){
+  const [np,setNp]=useState('');const [nr,setNr]=useState('');const [delC,setDelC]=useState(0);const [nextMatch,setNextMatch]=useState(settings?.nextMatch||'');const [penalty,setPenalty]=useState(settings?.penalty||0);
+  const isAdmin=ADMINS.includes(myName);
+  const saveSettings=(nm,pen)=>onSettings({nextMatch:nm,penalty:pen});
+  return(
     <div>
-      <div style={{ fontSize:10, letterSpacing:3, color:C.cyan, marginBottom:12 }}>POSLEDNÍ AKTIVITY ({entries.length})</div>
-      {entries.map((e,i) => { const t = icons[e.type]||{ic:'•',col:C.muted}; return (
-        <div key={e.id} style={{ display:'flex', gap:10, padding:'10px 12px', marginBottom:6, borderRadius:12, background:'rgba(255,255,255,.03)', border:`1px solid ${C.border}`, animation:`fadeUp .2s ease ${Math.min(i,.1)*0.03}s both` }}>
-          <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, background:`${t.col}18`, border:`1px solid ${t.col}33`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>{t.ic}</div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}><span style={{ fontWeight:800, fontSize:14, color:t.col }}>{e.who}</span><span style={{ fontSize:12, color:C.muted }}>{e.what}</span></div>
-            {e.detail && <div style={{ fontSize:12, color:C.text, background:'rgba(255,255,255,.04)', borderRadius:6, padding:'3px 8px', display:'inline-block', border:`1px solid ${C.border}`, maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.detail}</div>}
-          </div>
-          <div style={{ fontSize:10, color:C.muted, whiteSpace:'nowrap', paddingTop:2, flexShrink:0 }}>{fmt(e.time)}</div>
+      {/* Players */}
+      <div style={{...S.card,marginBottom:12}}>
+        <span style={S.lbl}>HRÁČI SKUPINKY ({players.length})</span>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+          {players.map(p=><div key={p} style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,.05)',borderRadius:20,padding:'5px 12px',border:`1px solid ${C.border}`}}><span style={{fontSize:13,fontWeight:700}}>{p}</span>{isAdmin&&<span onClick={()=>{if(window.confirm(`Odstranit ${p}?`)){onPlayers(players.filter(x=>x!==p),`Odstranil hráče`,p);}}} style={{cursor:'pointer',color:C.red,fontSize:14,lineHeight:1}}>×</span>}</div>)}
         </div>
-      ); })}
+        {isAdmin&&<div style={{display:'flex',gap:6}}><input value={np} onChange={e=>setNp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&np.trim()&&!players.includes(np.trim())&&(onPlayers([...players,np.trim()],'Přidal hráče',np.trim()),setNp(''))} placeholder="Nový hráč…" style={{...S.input,flex:1,fontSize:13}}/><button onClick={()=>{if(np.trim()&&!players.includes(np.trim())){onPlayers([...players,np.trim()],'Přidal hráče',np.trim());setNp('');}}} style={{background:C.blue,border:'none',borderRadius:10,color:'#fff',fontWeight:800,padding:'0 16px',cursor:'pointer',fontSize:14}}>+</button></div>}
+      </div>
+      {/* Rounds */}
+      <div style={{...S.card,marginBottom:12}}>
+        <span style={S.lbl}>KOLA ({rounds.length})</span>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+          {rounds.map(r=><div key={r} style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,.05)',borderRadius:20,padding:'5px 12px',border:`1px solid ${C.border}`}}><span style={{fontSize:13,fontWeight:700}}>{r}</span>{isAdmin&&<span onClick={()=>onRounds(rounds.filter(x=>x!==r),'Odstranil kolo',r)} style={{cursor:'pointer',color:C.red,fontSize:14,lineHeight:1}}>×</span>}</div>)}
+        </div>
+        {isAdmin&&<div style={{display:'flex',gap:6}}><input value={nr} onChange={e=>setNr(e.target.value)} onKeyDown={e=>e.key==='Enter'&&nr.trim()&&!rounds.includes(nr.trim())&&(onRounds([...rounds,nr.trim()],'Přidal kolo',nr.trim()),setNr(''))} placeholder="Nové kolo…" style={{...S.input,flex:1,fontSize:13}}/><button onClick={()=>{if(nr.trim()&&!rounds.includes(nr.trim())){onRounds([...rounds,nr.trim()],'Přidal kolo',nr.trim());setNr('');}}} style={{background:C.blue,border:'none',borderRadius:10,color:'#fff',fontWeight:800,padding:'0 16px',cursor:'pointer',fontSize:14}}>+</button></div>}
+      </div>
+      {/* Settings */}
+      {isAdmin&&<div style={{...S.card,marginBottom:12}}>
+        <span style={S.lbl}>NASTAVENÍ</span>
+        <div style={{marginBottom:10}}><div style={{fontSize:12,color:C.muted,marginBottom:4}}>Příští zápas (ISO datetime)</div><input value={nextMatch} onChange={e=>setNextMatch(e.target.value)} placeholder="2026-05-15T16:20:00+02:00" style={{...S.input,fontSize:13}}/></div>
+        <div style={{marginBottom:10}}><div style={{fontSize:12,color:C.muted,marginBottom:4}}>Trest pro posledního (počet piv)</div><input type="number" value={penalty} onChange={e=>setPenalty(Number(e.target.value))} style={{...S.input,fontSize:13}}/></div>
+        <button onClick={()=>{saveSettings(nextMatch,penalty);toast('✓ Uloženo');}} style={{width:'100%',padding:10,background:'linear-gradient(135deg,#1d4ed8,#0369a1)',border:'none',borderRadius:10,color:'#fff',fontWeight:800,cursor:'pointer',fontFamily:'inherit',fontSize:14}}>Uložit nastavení</button>
+      </div>}
+      {/* Danger zone */}
+      {isAdmin&&<div style={{...S.card,border:'1px solid rgba(239,68,68,.3)'}}>
+        <span style={{...S.lbl,color:C.red}}>⚠️ NEBEZPEČNÁ ZÓNA</span>
+        <button onClick={()=>{setDelC(c=>c+1);if(delC>=2){onScoreDel('ALL');setDelC(0);toast('🗑 Všechna skóre smazána');}else toast(`Klepni ještě ${2-delC}× pro potvrzení`);}} style={{width:'100%',padding:10,background:'rgba(239,68,68,.15)',border:'1px solid rgba(239,68,68,.3)',borderRadius:10,color:C.red,fontWeight:800,cursor:'pointer',fontFamily:'inherit',fontSize:13}}>🗑 SMAZAT VŠECHNA SKÓRE ({delC}/3)</button>
+      </div>}
     </div>
   );
 }
 
-// ── MANAGE ───────────────────────────────────────────────────
-function Manage({ players, rounds, squads, myName, toast, onPlayers, onRounds, onScoreDel, onSquads, settings, onSettings }) {
-  const [newP,setNewP]=useState(''); const [newR,setNewR]=useState('');
-  const [key,setKey]=useState(()=>localStorage.getItem('hk26_apikey')||'');
-  const [punishment,setPunishment]=useState(settings?.punishment||'');
-  const [nextMatch,setNextMatch]=useState(settings?.nextMatch||'');
-  const [confirmStep,setConfirmStep]=useState(0);
-  useEffect(()=>{ setPunishment(settings?.punishment||''); setNextMatch(settings?.nextMatch||''); },[settings]);
-  const saveKey=()=>{localStorage.setItem('hk26_apikey',key);toast('API klíč uložen ✓');};
-  const saveSettings=()=>{onSettings({punishment,nextMatch});toast('Nastavení uloženo ✓');};
-  const addP=()=>{const n=newP.trim();if(!n||players.includes(n))return;onPlayers([...players,n],'přidal hráče',n);setNewP('');toast(`„${n}" přidán`);};
-  const delP=p=>{onPlayers(players.filter(x=>x!==p),'odstranil hráče',p);const sq={...squads};delete sq[p];onSquads(sq);onScoreDel(rounds.map(r=>sk(p,r)));toast(`„${p}" odstraněn`);};
-  const addR=()=>{const n=newR.trim();if(!n||rounds.includes(n))return;onRounds([...rounds,n],'přidal kolo',n);setNewR('');toast(`Kolo „${n}" přidáno`);};
-  const delR=r=>{onRounds(rounds.filter(x=>x!==r),'odstranil kolo',r);onScoreDel(players.map(p=>sk(p,r)));toast(`Kolo „${r}" odstraněno`);};
-  const Sect=({title,items,v,sv,add,del})=>(
-    <div style={{...S.card,marginBottom:12}}>
-      <span style={S.lbl}>{title} ({items.length})</span>
-      <div style={{display:'flex',gap:6,marginBottom:10}}><input value={v} onChange={e=>sv(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} placeholder="Přidat…" style={S.input}/><button onClick={add} style={{background:'linear-gradient(135deg,#1d4ed8,#0369a1)',border:'none',borderRadius:10,color:'#fff',fontWeight:900,padding:'10px 16px',cursor:'pointer',fontSize:20,flexShrink:0}}>+</button></div>
-      <div style={{maxHeight:200,overflowY:'auto'}}>{items.map((item,i)=><div key={item} style={{display:'flex',alignItems:'center',padding:'8px 10px',background:'rgba(255,255,255,.03)',borderRadius:8,marginBottom:4,border:`1px solid ${C.border}`}}><span style={{color:C.muted,fontSize:11,minWidth:24}}>#{i+1}</span><span style={{flex:1,fontWeight:600,fontSize:14}}>{item}</span><button onClick={()=>del(item)} style={{background:'rgba(248,113,113,.12)',border:'1px solid rgba(248,113,113,.25)',color:C.red,borderRadius:6,cursor:'pointer',padding:'3px 10px',fontSize:12,fontFamily:'inherit'}}>✕</button></div>)}</div>
-    </div>
-  );
-  return (
-    <div>
-      <Sect title="HRÁČI" items={players} v={newP} sv={setNewP} add={addP} del={delP}/>
-      <Sect title="KOLA" items={rounds} v={newR} sv={setNewR} add={addR} del={delR}/>
-      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(192,132,252,.2)',background:'rgba(192,132,252,.05)'}}>
-        <span style={S.lbl}>⚙️ NASTAVENÍ SKUPINKY</span>
-        <div style={{marginBottom:10}}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Trest pro posledního 🍺</div><input value={punishment} onChange={e=>setPunishment(e.target.value)} placeholder="např. Staví celé skupině pivo" style={S.input}/></div>
-        <div style={{marginBottom:10}}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Příští zápas / kolo</div><input value={nextMatch} onChange={e=>setNextMatch(e.target.value)} type="datetime-local" style={{...S.input,colorScheme:'dark'}}/></div>
-        <button onClick={saveSettings} style={{...S.btn(true),width:'100%'}}>Uložit nastavení</button>
-      </div>
-      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(56,189,248,.2)',background:'rgba(29,78,216,.06)'}}>
-        <span style={S.lbl}>ANTHROPIC API KLÍČ</span>
-        <div style={{display:'flex',gap:6}}><input value={key} onChange={e=>setKey(e.target.value)} type="password" placeholder="sk-ant-…" style={S.input}/><button onClick={saveKey} style={{background:'linear-gradient(135deg,#1d4ed8,#0369a1)',border:'none',borderRadius:10,color:'#fff',fontWeight:900,padding:'10px 14px',cursor:'pointer',fontFamily:'inherit',fontSize:13,flexShrink:0}}>Uložit</button></div>
-        <p style={{fontSize:10,color:C.muted,marginTop:6}}>Uloží se jen do tvého zařízení.</p>
-      </div>
-      <div style={{...S.card,marginBottom:12,border:'1px solid rgba(251,191,36,.2)',background:'rgba(251,191,36,.04)'}}>
-        <span style={S.lbl}>PŘIHLÁŠEN JAKO</span>
-        <div style={{fontSize:16,fontWeight:700,color:C.gold}}>{myName}</div>
-        <button onClick={()=>{localStorage.removeItem('hk26_myname');window.location.reload();}} style={{marginTop:8,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:'6px 12px',fontFamily:'inherit',fontSize:12}}>Změnit přezdívku</button>
-      </div>
-      <div style={{...S.card,border:`1px solid ${confirmStep>0?'rgba(248,113,113,.5)':'rgba(248,113,113,.2)'}`,background:'rgba(248,113,113,.04)'}}>
-        <span style={S.lbl}>⚠️ NEBEZPEČNÁ ZÓNA</span>
-        {confirmStep===0&&<button onClick={()=>setConfirmStep(1)} style={{background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:C.red,borderRadius:8,cursor:'pointer',padding:'9px 16px',width:'100%',fontFamily:'inherit',fontSize:13,fontWeight:700}}>🗑 Smazat všechna skóre</button>}
-        {confirmStep===1&&<div><div style={{background:'rgba(248,113,113,.12)',borderRadius:10,padding:'10px 12px',marginBottom:10}}><div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:4}}>Otázka 1 / 3</div><div style={{fontSize:13,color:C.text}}>Opravdu chceš smazat <strong>všechna skóre</strong>? Nejde to vrátit.</div></div><div style={{display:'flex',gap:8}}><button onClick={()=>setConfirmStep(2)} style={{flex:1,background:'rgba(248,113,113,.2)',border:`1px solid ${C.red}`,color:C.red,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:800,fontSize:13}}>Ano, chci</button><button onClick={()=>setConfirmStep(0)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:700}}>← Zpět</button></div></div>}
-        {confirmStep===2&&<div><div style={{background:'rgba(248,113,113,.15)',borderRadius:10,padding:'10px 12px',marginBottom:10}}><div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:4}}>Otázka 2 / 3</div><div style={{fontSize:13,color:C.text}}>Všechny výsledky ze <strong>všech kol</strong> nenávratně zmizí.</div></div><div style={{display:'flex',gap:8}}><button onClick={()=>setConfirmStep(3)} style={{flex:1,background:'rgba(248,113,113,.25)',border:`1px solid ${C.red}`,color:C.red,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:800,fontSize:13}}>Jsem si jistý</button><button onClick={()=>setConfirmStep(0)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:700}}>← Zpět</button></div></div>}
-        {confirmStep===3&&<div><div style={{background:'rgba(248,113,113,.2)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:`1px solid ${C.red}`}}><div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:4}}>⛔ Poslední šance — 3 / 3</div><div style={{fontSize:13,color:C.text}}>Tohle je <strong>nevratná akce</strong>.</div></div><div style={{display:'flex',gap:8}}><button onClick={()=>{onScoreDel('ALL');setConfirmStep(0);toast('🗑 Skóre smazána');}} style={{flex:1,background:'rgba(248,113,113,.4)',border:`2px solid ${C.red}`,color:'#fff',borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:900,fontSize:13}}>SMAZAT VŠE</button><button onClick={()=>setConfirmStep(0)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',padding:10,fontFamily:'inherit',fontWeight:700}}>← Zpět</button></div></div>}
-      </div>
-    </div>
-  );
-}
-
-// ── ROOT APP ─────────────────────────────────────────────────
-function App() {
-  const [ready,setReady]=useState(false); const [fbOk,setFbOk]=useState(true);
-  const [myName,setMyName]=useState(()=>localStorage.getItem('hk26_myname'));
-  const [players,setPlayers]=useState([]); const [rounds,setRounds]=useState([]);
-  const [scores,setScores]=useState({}); const [squads,setSquads]=useState({});
-  const [activity,setActivity]=useState({}); const [reactions,setReactions]=useState({});
-  const [comments,setComments]=useState({}); const [settings,setSettingsState]=useState({});
+/* ── APP ─────────────────────────────────────────────── */
+function App(){
+  const [players,setPlayers]=useState([]);const [rounds,setRounds]=useState([]);
+  const [scores,setScores]=useState({});const [squads,setSquads]=useState({});
+  const [squadBuilds,setSquadBuilds]=useState({});
+  const [activity,setActivity]=useState({});const [reactions,setReactions]=useState({});
+  const [comments,setComments]=useState({});const [settings,setSettingsState]=useState({});
   const [disputes,setDisputes]=useState({});
-  const [squadImports,setSquadImports]=useState({});
-  const [squadRounds,setSquadRounds]=useState({});
-  const [tab,setTab]=useState('leaderboard'); const [msg,setMsg]=useState(null);
-  const toast=m=>setMsg(m);
+  const [ready,setReady]=useState(false);const [fbOk,setFbOk]=useState(true);
+  const [myName,setMyName]=useState(()=>localStorage.getItem('hk26_myname')||'');
+  const [tab,setTab]=useState('leaderboard');const [msg,setMsg]=useState(null);
+  const toast=useCallback(m=>{setMsg(m);},[]);
 
   useEffect(()=>{
     if(!db){setFbOk(false);setReady(true);return;}
-    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,si:false,sr:false};
+    let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,sb:false};
     const check=()=>{if(Object.values(done).every(Boolean))setReady(true);};
     const refs=[
       [db.ref('config'),s=>{const d=s.val()||{};setPlayers(d.players||[]);setRounds(d.rounds||[]);done.cfg=true;check();},()=>{setFbOk(false);done.cfg=true;check();}],
@@ -920,8 +738,7 @@ function App() {
       [db.ref('comments'),s=>{setComments(s.val()||{});done.cm=true;check();},()=>{done.cm=true;check();}],
       [db.ref('settings'),s=>{setSettingsState(s.val()||{});done.st=true;check();},()=>{done.st=true;check();}],
       [db.ref('disputes'),s=>{setDisputes(s.val()||{});done.dp=true;check();},()=>{done.dp=true;check();}],
-      [db.ref('squad_imports'),s=>{setSquadImports(s.val()||{});done.si=true;check();},()=>{done.si=true;check();}],
-      [db.ref('squad_rounds'),s=>{setSquadRounds(s.val()||{});done.sr=true;check();},()=>{done.sr=true;check();}],
+      [db.ref('squad_builds'),s=>{setSquadBuilds(s.val()||{});done.sb=true;check();},()=>{done.sb=true;check();}],
     ];
     refs.forEach(([ref,cb,err])=>ref.on('value',cb,err));
     return()=>refs.forEach(([ref])=>ref.off());
@@ -929,58 +746,32 @@ function App() {
 
   const logActivity=useCallback((who,type,what,detail)=>{db?.ref('activity').push({who,type,what,detail:detail||'',time:Date.now()});},[]);
   const saveConfig=useCallback((p,r)=>db?.ref('config').set({players:p,rounds:r}),[]);
-  const handlePlayers=useCallback((p,who,action,detail)=>{setPlayers(p);saveConfig(p,rounds);if(who)logActivity(who,'player',action,detail);},[rounds,saveConfig,logActivity]);
-  const handleRounds=useCallback((r,who,action,detail)=>{setRounds(r);saveConfig(players,r);if(who)logActivity(who,'round',action,detail);},[players,saveConfig,logActivity]);
-  const handleScore=useCallback((key,val,who)=>{
-    if(val===null)db?.ref(`scores/${key}`).remove();else db?.ref(`scores/${key}`).set(val);
-    if(who){const p=key.split('__');logActivity(who,'score','upravil skóre',`${p[0]?.replace(/-/g,' ')} · ${p[1]?.replace(/-/g,' ')} → ${val??'–'}`);}
-  },[logActivity]);
-  const handleScoreDel=useCallback((keys,who)=>{
-    if(keys==='ALL'){db?.ref('scores').remove();if(who)logActivity(who,'delete','smazal všechna skóre','⚠️ Reset');return;}
-    const u={};keys.forEach(k=>{u[k]=null;});db?.ref('scores').update(u);
-  },[logActivity]);
+  const handlePlayers=useCallback((p,who,a,d)=>{setPlayers(p);saveConfig(p,rounds);if(who)logActivity(who,'player',a,d);},[rounds,saveConfig,logActivity]);
+  const handleRounds=useCallback((r,who,a,d)=>{setRounds(r);saveConfig(players,r);if(who)logActivity(who,'round',a,d);},[players,saveConfig,logActivity]);
+  const handleScore=useCallback((key,val,who)=>{if(val===null)db?.ref(`scores/${key}`).remove();else db?.ref(`scores/${key}`).set(val);if(who){const p=key.split('__');logActivity(who,'score','upravil skóre',`${p[0]?.replace(/-/g,' ')} · ${p[1]?.replace(/-/g,' ')} → ${val??'–'}`);}},[logActivity]);
+  const handleScoreDel=useCallback((keys,who)=>{if(keys==='ALL'){db?.ref('scores').remove();if(who)logActivity(who,'delete','smazal všechna skóre','⚠️ Reset');return;}const u={};keys.forEach(k=>{u[k]=null;});db?.ref('scores').update(u);},[logActivity]);
   const handleSquads=useCallback((sq,who,detail)=>{db?.ref('squads').set(sq);if(who&&detail)logActivity(who,'squad','nahrál soupisku',detail);},[logActivity]);
   const handleSettings=useCallback(s=>db?.ref('settings').set(s),[]);
   const handleReaction=useCallback((scoreKey,emoji)=>{const path=`reactions/${scoreKey}/${fk(myName)}`;if(!emoji)db?.ref(path).remove();else db?.ref(path).set(emoji);},[myName]);
   const handleComment=useCallback((roundKey,playerKey,text)=>{const path=`comments/${roundKey}/${playerKey}`;if(!text)db?.ref(path).remove();else db?.ref(path).set(text);},[]);
-  const handleDispute=useCallback((scoreKey,comment,who)=>{
-    db?.ref(`disputes/${scoreKey}`).push({who,comment,time:Date.now(),resolved:false});
-    logActivity(who,'dispute','nahlásil podezřelé skóre',`${scoreKey.replace(/__/g,' · ').replace(/-/g,' ')} — "${comment}"`);
-  },[logActivity]);
-  const handleResolveDispute=useCallback((scoreKey,disputeId,who)=>{
-    db?.ref(`disputes/${scoreKey}/${disputeId}`).update({resolved:true,resolvedBy:who,resolvedAt:Date.now()});
-    logActivity(who,'resolve','označil spor jako vyřešený',scoreKey.replace(/__/g,' · ').replace(/-/g,' '));
-  },[logActivity]);
-  const handleSquadImport=useCallback(async(roundKey,playerKey,imageBase64)=>{
-    await db?.ref(`squad_imports/${roundKey}/${playerKey}`).set({imageBase64,uploadedAt:Date.now()});
-    logActivity(myName,'squadimport','nahrál tajný squad','🔒 Skryto do zveřejnění');
-  },[myName,logActivity]);
-  const handlePublishRound=useCallback(async(roundKey,who)=>{
-    await db?.ref(`squad_rounds/${roundKey}`).set({published:true,publishedBy:who,publishedAt:Date.now()});
-    logActivity(who,'publish',`zveřejnil sestavy`,`Kolo: ${roundKey.replace(/-/g,' ')}`);
-  },[logActivity]);
-  const handleJoin=useCallback(name=>{
-    localStorage.setItem('hk26_myname',name);setMyName(name);
-    setPlayers(prev=>{if(prev.includes(name))return prev;const upd=[...prev,name];saveConfig(upd,rounds);logActivity(name,'join','se připojil do skupinky','👋 Nový člen');return upd;});
-  },[rounds,saveConfig,logActivity]);
+  const handleDispute=useCallback((scoreKey,comment,who)=>{db?.ref(`disputes/${scoreKey}`).push({who,comment,time:Date.now(),resolved:false});logActivity(who,'dispute','nahlásil podezřelé skóre',`${scoreKey.replace(/__/g,' · ').replace(/-/g,' ')} — "${comment}"`)},[logActivity]);
+  const handleResolveDispute=useCallback((scoreKey,disputeId,who)=>{db?.ref(`disputes/${scoreKey}/${disputeId}`).update({resolved:true,resolvedBy:who,resolvedAt:Date.now()});logActivity(who,'resolve','označil spor jako vyřešený',scoreKey.replace(/__/g,' · ').replace(/-/g,' '));},[logActivity]);
+  const handleSquadSave=useCallback(async(roundKey,playerKey,squad)=>{await db?.ref(`squad_builds/${roundKey}/${playerKey}`).set({...squad,savedAt:Date.now()});logActivity(myName,'squadbuild','aktualizoval sestavu',`Kolo: ${roundKey.replace(/-/g,' ')}`);},[myName,logActivity]);
+  const handleJoin=useCallback(name=>{localStorage.setItem('hk26_myname',name);setMyName(name);setPlayers(prev=>{if(prev.includes(name))return prev;const upd=[...prev,name];saveConfig(upd,rounds);logActivity(name,'join','se připojil do skupinky','👋 Nový člen');return upd;});},[rounds,saveConfig,logActivity]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}><Spinner sz={34}/><div style={{color:C.muted,fontSize:11,letterSpacing:4}}>PŘIPOJUJI SE…</div></div>;
-  if(!fbOk)return<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}><div style={{...S.card,maxWidth:360,textAlign:'center'}}><div style={{fontSize:36,marginBottom:12}}>🔧</div><div style={{fontSize:16,fontWeight:700}}>Firebase není nakonfigurovaný</div></div></div>;
-  if(!myName)return <Setup existing={players} onJoin={handleJoin}/>;
+  if(!fbOk)return<div style={{minHeight:'100vh',background:C.bg0,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}><div style={{...S.card,maxWidth:360,textAlign:'center'}}><div style={{fontSize:36,marginBottom:12}}>🔧</div><div>Firebase není dostupný</div></div></div>;
+  if(!myName)return<Setup existing={players} onJoin={handleJoin}/>;
 
-  const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🔒','Sestavy'],['squad','👕','Soupisky'],['charts','📈','Grafy'],['history','📋','Historie'],['manage','⚙️','Správa']];
-  const openDisputeCount = Object.values(disputes).reduce((s,cell) => s + Object.values(cell).filter(d=>!d.resolved).length, 0);
-  const pendingSquads = rounds.length > 0 ? Object.keys(squadImports[fk(rounds[rounds.length-1])]||{}).length : 0;
+  const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🏒','Sestavy'],['stats','👕','Statistiky'],['charts','📈','Grafy'],['history','📋','Historie'],['manage','⚙️','Správa']];
+  const openDisputeCount=Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
 
   return(
     <div style={{minHeight:'100vh',background:C.bg0,paddingBottom:72}}>
       <div style={{position:'fixed',inset:0,pointerEvents:'none',background:'radial-gradient(ellipse 80% 40% at 50% 100%,rgba(29,78,216,.1) 0%,transparent 60%)'}}/>
       <div style={{position:'sticky',top:0,zIndex:50,background:'rgba(5,10,20,.93)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',borderBottom:`1px solid ${C.border}`,padding:'8px 16px'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',maxWidth:860,margin:'0 auto'}}>
-          <div>
-            <div style={{fontSize:9,letterSpacing:4,color:C.cyan,lineHeight:1}}>🏒 TIPSPORT FANTASY</div>
-            <div style={{fontSize:18,fontWeight:900,letterSpacing:2,lineHeight:1.1,background:'linear-gradient(135deg,#fff,#38bdf8)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>MS HOKEJ 2026</div>
-          </div>
+          <div><div style={{fontSize:9,letterSpacing:4,color:C.cyan,lineHeight:1}}>🏒 TIPSPORT FANTASY</div><div style={{fontSize:18,fontWeight:900,letterSpacing:2,lineHeight:1.1,background:'linear-gradient(135deg,#fff,#38bdf8)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>MS HOKEJ 2026</div></div>
           <div style={{textAlign:'right'}}>
             {settings?.nextMatch&&<div style={{marginBottom:1}}><Countdown nextMatch={settings.nextMatch}/></div>}
             <div style={{fontSize:8,color:C.muted,letterSpacing:1}}>PŘIHLÁŠEN</div>
@@ -991,8 +782,8 @@ function App() {
       <div style={{maxWidth:860,margin:'0 auto',padding:'12px 12px 0',position:'relative',zIndex:1}}>
         {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
         {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
-        {tab==='sestavy'&&<SquadImport myName={myName} rounds={rounds} squadImports={squadImports} squadRounds={squadRounds} onImport={handleSquadImport} onPublish={handlePublishRound} toast={toast}/>}
-        {tab==='squad'&&<Squads players={players} squads={squads} onSquads={(sq,d)=>handleSquads(sq,myName,d)} myName={myName} toast={toast}/>}
+        {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave}/>}
+        {tab==='stats'&&<Statistics players={players} squads={squads} onSquads={(sq,d)=>handleSquads(sq,myName,d)} myName={myName} toast={toast}/>}
         {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
         {tab==='history'&&<History activity={activity}/>}
         {tab==='manage'&&<Manage players={players} rounds={rounds} squads={squads} myName={myName} toast={toast} settings={settings} onSettings={handleSettings} onPlayers={(p,a,d)=>handlePlayers(p,myName,a,d)} onRounds={(r,a,d)=>handleRounds(r,myName,a,d)} onScoreDel={k=>handleScoreDel(k,myName)} onSquads={(sq,d)=>handleSquads(sq,myName,d)}/>}
@@ -1000,13 +791,12 @@ function App() {
       <nav style={{position:'fixed',bottom:0,left:0,right:0,zIndex:50,background:'rgba(5,10,20,.96)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',borderTop:`1px solid ${C.border}`,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
         <div style={{display:'flex',maxWidth:860,margin:'0 auto'}}>
           {TABS.map(([k,ic,lb])=>(
-            <button key={k} onClick={()=>setTab(k)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,padding:'7px 0 9px',border:'none',background:'transparent',cursor:'pointer',position:'relative'}}>
-              <div style={{fontSize:16,lineHeight:1,position:'relative'}}>
+            <button key={k} onClick={()=>setTab(k)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,padding:'6px 0 8px',border:'none',background:'transparent',cursor:'pointer',position:'relative'}}>
+              <div style={{fontSize:15,lineHeight:1,position:'relative'}}>
                 {ic}
-                {k==='table'&&openDisputeCount>0&&<span style={{position:'absolute',top:-4,right:-6,background:C.red,color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:8,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center'}}>{openDisputeCount}</span>}
-                {k==='sestavy'&&pendingSquads>0&&<span style={{position:'absolute',top:-4,right:-6,background:'#7c3aed',color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:8,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center'}}>{pendingSquads}</span>}
+                {k==='table'&&openDisputeCount>0&&<span style={{position:'absolute',top:-4,right:-6,background:C.red,color:'#fff',borderRadius:'50%',width:13,height:13,fontSize:7,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center'}}>{openDisputeCount}</span>}
               </div>
-              <div style={{fontSize:7,fontWeight:700,letterSpacing:.5,color:tab===k?C.cyan:C.muted}}>{lb.toUpperCase()}</div>
+              <div style={{fontSize:6,fontWeight:700,letterSpacing:.3,color:tab===k?C.cyan:C.muted}}>{lb.toUpperCase()}</div>
               {tab===k&&<div style={{position:'absolute',top:0,left:'20%',right:'20%',height:2,borderRadius:1,background:C.cyan}}/>}
             </button>
           ))}
@@ -1016,7 +806,6 @@ function App() {
     </div>
   );
 }
-
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
