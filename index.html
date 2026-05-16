@@ -294,6 +294,17 @@ function Setup({existing,onJoin}){
 
 /* ── SQUAD BUILDER ─────────────────────────────────── */
 
+
+class ErrorBoundary extends React.Component{
+  constructor(p){super(p);this.state={e:null};}
+  static getDerivedStateFromError(e){return{e:e.message||'Unknown error'};}
+  componentDidCatch(e,i){console.error('SquadBuilder crash:',e,i);}
+  render(){
+    if(this.state.e)return <div style={{padding:20,margin:12,background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:12,color:'#fca5a5'}}><b>⚠️ Chyba v záložce Sestavy:</b><br/><code style={{fontSize:11}}>{this.state.e}</code></div>;
+    return this.props.children;
+  }
+}
+
 function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players,matchResults,isAdmin,onMatchResult,customPlayers}){
   const [selRound,setSelRound]=useState('');
   const [mySquad,setMySquad]=useState(emptySquad());
@@ -1550,7 +1561,7 @@ function App(){
       <div style={{maxWidth:860,margin:'0 auto',padding:'12px 12px 0',position:'relative',zIndex:1}}>
         {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
         {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
-        {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave} players={players} matchResults={matchResults} isAdmin={ADMINS.includes(myName)} onMatchResult={(k,v)=>db?.ref('match_results/'+k).set(v)} customPlayers={customPlayers}/> }
+        {tab==='sestavy'&&<ErrorBoundary><SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave} players={players} matchResults={matchResults} isAdmin={ADMINS.includes(myName)} onMatchResult={(k,v)=>db?.ref('match_results/'+k).set(v)} customPlayers={customPlayers}/></ErrorBoundary>}
         {tab==='stats'&&<Statistics players={players} rounds={rounds} userStats={userStats} onUserStats={handleUserStats} myName={myName} squadBuilds={squadBuilds} matchDetails={matchDetails}/>}
         {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
         {tab==='results'&&<Results matchResults={matchResults} matchDetails={matchDetails} onMatchDetails={(k,v)=>db?.ref('match_details/'+k).set(v)} isAdmin={ADMINS.includes(myName)}/>}
