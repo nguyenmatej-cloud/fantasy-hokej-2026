@@ -1529,6 +1529,46 @@ function App(){
 
 
 
+  // ── Live polling: každých 30s když běží live zápasy ──
+  const [liveScore,setLiveScore]=useState({});
+  const pollRef=useRef(null);
+
+  useEffect(()=>{
+    if(!ready||!db)return;
+
+    function hasLive(){
+      const now=Date.now();
+      return MS.some(([t])=>{
+        const start=new Date(t).getTime();
+        return now>=start&&now<start+4*60*60*1000;
+      });
+    }
+
+    async function poll(){
+      if(!hasLive())return;
+      try{
+        const day=new Date().toISOString().slice(0,10);
+        const r=await fetch('/api/scores?day='+day);
+        if(!r.ok)return;
+        const data=await r.json();
+        (data.events||[]).forEach(e=>{
+          if(!e.teamA||!e.teamB||e.scoreH==null)return;
+          // Smaž špatné 0:0 pro live zápasy
+          if(e.status==='live'&&e.scoreH===0&&e.scoreA===0){
+            db.ref('match_results/'+e.key).remove();return;
+          }
+          // Ulož real skóre
+          if(e.scoreH+e.scoreA>0||e.status==='done')
+            db.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});
+        });
+      }catch(_){}
+    }
+
+    poll();
+    pollRef.current=setInterval(poll,30000);
+    return()=>{if(pollRef.current)clearInterval(pollRef.current);};
+  },[ready]);
+
   const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🏒','Sestavy'],['stats','👕','Statistiky'],['charts','📈','Grafy'],['results','⚽','Výsledky'],['history','📋','Historie'],['manage','⚙️','Správa']];
   const openDisputeCount=Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
 
