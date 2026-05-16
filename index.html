@@ -1500,6 +1500,13 @@ function App(){
 
   useEffect(()=>{
     if(!db){setFbOk(false);setReady(true);return;}
+    // Smaž špatná invertovaná data z TheSportsDB
+    db.ref('match_results/2026-05-16_CAN_ITA').once('value').then(s=>{
+      const v=s.val();if(v&&v.h===0&&v.a===4)db.ref('match_results/2026-05-16_CAN_ITA').remove();
+    }).catch(()=>{});
+    db.ref('match_results/2026-05-16_GBR_AUT').once('value').then(s=>{
+      const v=s.val();if(v&&v.h===5&&v.a===2)db.ref('match_results/2026-05-16_GBR_AUT').remove();
+    }).catch(()=>{});
     let done={cfg:false,sc:false,sq:false,act:false,rx:false,cm:false,st:false,dp:false,sb:false,ps:false,mr:false,md:false,cp:false};
     const check=()=>{if(Object.values(done).every(Boolean))setReady(true);};
     const refs=[
