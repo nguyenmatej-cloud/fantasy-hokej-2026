@@ -1482,30 +1482,6 @@ function App(){
 
 
 
-  // ── Auto-fetch výsledků (Vercel /api/scores) ──────────
-  const [autoMsg,setAutoMsg]=useState('');
-  useEffect(()=>{
-    if(!ready||!db)return;
-    async function fetchToday(){
-      try{
-        const day=new Date().toISOString().slice(0,10);
-        const r=await fetch('/api/scores?day='+day);
-        if(!r.ok)return;
-        const data=await r.json();
-        let n=0;
-        (data.events||[]).forEach(e=>{
-          if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null){
-            db.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});
-            n++;
-          }
-        });
-        if(n>0){setAutoMsg('✅ '+n+' výsledků');setTimeout(()=>setAutoMsg(''),5000);}
-      }catch(_){}
-    }
-    fetchToday();
-    const iv=setInterval(fetchToday,3*60*1000);
-    return()=>clearInterval(iv);
-  },[ready]);
 
   const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🏒','Sestavy'],['stats','👕','Statistiky'],['charts','📈','Grafy'],['results','⚽','Výsledky'],['history','📋','Historie'],['manage','⚙️','Správa']];
   const openDisputeCount=Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
@@ -1547,7 +1523,7 @@ function App(){
           ))}
         </div>
       </nav>
-      {msg&&<Toast msg={msg} done={()=>setMsg(null)}/> }{autoMsg&&<div style={{position:'fixed',top:8,right:8,zIndex:200,background:'rgba(5,150,105,.9)',color:'#fff',borderRadius:20,padding:'4px 12px',fontSize:11,fontWeight:700}}>{autoMsg}</div>}
+      {msg&&<Toast msg={msg} done={()=>setMsg(null)}/>}
     </div>
   );
 }
