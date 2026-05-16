@@ -1202,9 +1202,8 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
               const MS2=new Set(['FIN_GER','SWE_CAN','USA_SUI','DEN_CZE','GBR_AUT','SVK_NOR','HUN_FIN','CAN_ITA','SUI_LAT','SLO_CZE','GBR_USA','ITA_SVK','AUT_HUN','SWE_DEN','GER_LAT','NOR_SLO','FIN_USA','CAN_DEN','GER_SUI','CZE_SWE','LAT_AUT','ITA_NOR','HUN_GBR','SLO_SVK']);
               function mt2(n){if(!n)return null;const t=n.trim();if(TMAP2[t])return TMAP2[t];for(const[k,v]of Object.entries(TMAP2))if(t.toLowerCase().includes(k.toLowerCase()))return v;return t.slice(0,3).toUpperCase();}
               const ssUrl='https://api.sofascore.com/api/v1/sport/ice-hockey/scheduled-events/'+selDay;
-              const r=await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(ssUrl));
-              const w=await r.json();
-              const data=JSON.parse(w.contents||'{}');
+              const r=await fetch(ssUrl,{headers:{'Accept':'application/json','Referer':'https://www.sofascore.com/'}});
+              const data=await r.json();
               let n=0;
               (data.events||[]).forEach(e=>{
                 const tH=mt2(e.homeTeam?.name),tA=mt2(e.awayTeam?.name);
