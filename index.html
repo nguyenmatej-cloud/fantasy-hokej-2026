@@ -1198,14 +1198,27 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
           <button onClick={async()=>{
             setFetchMsg('⏳ Načítám...');
             try{
-              const r=await fetch('/api/scores?day='+selDay);
-              const data=await r.json();
+              const TMAP2={'Finland':'FIN','Germany':'GER','Canada':'CAN','Sweden':'SWE','United States':'USA','Switzerland':'SUI','Czech Republic':'CZE','Czechia':'CZE','Denmark':'DEN','Austria':'AUT','Great Britain':'GBR','Latvia':'LAT','Hungary':'HUN','Slovakia':'SVK','Norway':'NOR','Slovenia':'SLO','Italy':'ITA'};
+              const MS2=new Set(['FIN_GER','SWE_CAN','USA_SUI','DEN_CZE','GBR_AUT','SVK_NOR','HUN_FIN','CAN_ITA','SUI_LAT','SLO_CZE','GBR_USA','ITA_SVK','AUT_HUN','SWE_DEN','GER_LAT','NOR_SLO','FIN_USA','CAN_DEN','GER_SUI','CZE_SWE','LAT_AUT','ITA_NOR','HUN_GBR','SLO_SVK']);
+              function mt2(n){if(!n)return null;const t=n.trim();if(TMAP2[t])return TMAP2[t];for(const[k,v]of Object.entries(TMAP2))if(t.toLowerCase().includes(k.toLowerCase()))return v;return t.slice(0,3).toUpperCase();}
+              const ssUrl='https://api.sofascore.com/api/v1/sport/ice-hockey/scheduled-events/'+selDay;
+              const r=await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(ssUrl));
+              const w=await r.json();
+              const data=JSON.parse(w.contents||'{}');
               let n=0;
               (data.events||[]).forEach(e=>{
-                // Only save if: status is done AND at least one team scored
-              if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null&&(e.status==='done')&&(e.scoreH+e.scoreA>0)){
-                  db?.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});n++;
-                }
+                const tH=mt2(e.homeTeam?.name),tA=mt2(e.awayTeam?.name);
+                if(!tH||!tA)return;
+                const sh=e.homeScore?.current??0,sa=e.awayScore?.current??0;
+                const done=e.status?.type==='finished',live=e.status?.type==='inprogress';
+                if(!done&&!live)return;
+                if(sh+sa===0&&!done)return;
+                const k1=`${tH}_${tA}`,k2=`${tA}_${tH}`;
+                let key,h,a;
+                if(MS2.has(k1)){key=k1;h=sh;a=sa;}
+                else if(MS2.has(k2)){key=k2;h=sa;a=sh;}
+                else return;
+                db?.ref('match_results/'+selDay+'_'+key).set({h,a});n++;
               });
               setFetchMsg(n>0?'✅ '+n+' výsledků':'⚠️ Žádná data');
             }catch(err){setFetchMsg('❌ '+err.message);}
