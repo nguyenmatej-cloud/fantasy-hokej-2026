@@ -2,17 +2,12 @@ name: Auto-update hockey scores
 
 on:
   schedule:
-    # Každých 5 minut během herních hodin (10:00-23:00 UTC = 12:00-01:00 CEST)
     - cron: '*/5 10-23 * 5 *'
-  workflow_dispatch: # Možnost spustit ručně
+  workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch & update scores
-        run: |
-          RESPONSE=$(curl -s "https://fantasy-hokej-2026.vercel.app/api/update")
-          echo "Response: $RESPONSE"
-          UPDATED=$(echo $RESPONSE | grep -o '"updated":[0-9]*' | grep -o '[0-9]*')
-          echo "Updated $UPDATED results"
+        run: curl -s "https://fantasy-hokej-2026.vercel.app/api/update" || true
