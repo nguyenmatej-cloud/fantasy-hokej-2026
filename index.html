@@ -94,13 +94,17 @@ function Flag({code,size,style}){
 }
 const GAME_DURATION_MS=4*60*60*1000; // 4 hours max
 function matchStatus(utcISO,key,matchResults,matchDetails){
-  // Result in Firebase or SEED_DETAILS → done
-  if(key&&((matchResults&&matchResults[key])||(matchDetails&&matchDetails[key])||SEED_DETAILS[key]))return'done';
+  // Check if we have a real result (at least one goal OR explicitly done)
+  const stored=(matchResults&&matchResults[key])||(matchDetails&&matchDetails[key])||SEED_DETAILS[key];
+  if(stored){
+    // Only show as done if there's a non-zero score OR it's from SEED_DETAILS (trusted)
+    const hasGoals=(stored.h||0)+(stored.a||0)>0;
+    const isSeed=!!SEED_DETAILS[key];
+    if(hasGoals||isSeed)return'done';
+  }
   const now=Date.now();const t=new Date(utcISO).getTime();
   if(now<t)return'upcoming';
-  // Only show live if started less than 4 hours ago
   if(now<t+GAME_DURATION_MS)return'live';
-  // After 4 hours without result → show as done (no score)
   return'done';
 }
 // Check if match started FOR THIS SPECIFIC DAY (round) only
@@ -1099,6 +1103,21 @@ const SEED_DETAILS={
     {min:"41:17",period:3,team:"SUI",scorer:"Fiala K.",a1:"Hischier N.",a2:"Niederreiter N.",type:""},
     {min:"58:44",period:3,team:"SUI",scorer:"Meier T.",a1:"Fiala K.",a2:"Hischier N.",type:"EN"}
   ],penalties:[]},
+  "2026-05-16_GBR_AUT":{h:2,a:5,goals:[
+    {min:"02:50",period:1,team:"AUT",scorer:"Nissner B.",a1:"",a2:"",type:""},
+    {min:"06:00",period:1,team:"AUT",scorer:"Schneider P.",a1:"",a2:"",type:""},
+    {min:"09:47",period:1,team:"AUT",scorer:"Huber P.",a1:"",a2:"",type:""},
+    {min:"15:33",period:1,team:"GBR",scorer:"Clements D.",a1:"",a2:"",type:""},
+    {min:"16:10",period:1,team:"GBR",scorer:"Kirk L.",a1:"",a2:"",type:""},
+    {min:"33:27",period:2,team:"AUT",scorer:"Wallner L.",a1:"",a2:"",type:""},
+    {min:"55:00",period:3,team:"AUT",scorer:"Zwerger D.",a1:"",a2:"",type:""},
+    {min:"58:00",period:3,team:"AUT",scorer:"Wolf B.",a1:"",a2:"",type:""}
+  ],penalties:[]},
+  "2026-05-16_SVK_NOR":{h:2,a:1,goals:[
+    {min:"15:00",period:1,team:"SVK",scorer:"Pospísil K.",a1:"",a2:"",type:""},
+    {min:"35:00",period:2,team:"NOR",scorer:"",a1:"",a2:"",type:""},
+    {min:"55:00",period:3,team:"SVK",scorer:"Hrivík M.",a1:"",a2:"",type:""}
+  ],penalties:[]},
   "2026-05-15_DEN_CZE":{h:1,a:4,goals:[
     {min:"05:52",period:1,team:"CZE",scorer:"Červenka R.",a1:"Flek J.",a2:"Kubalík D.",type:""},
     {min:"17:44",period:1,team:"CZE",scorer:"Kubalík D.",a1:"Červenka R.",a2:"Říčka M.",type:""},
@@ -1164,7 +1183,8 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
               const data=await r.json();
               let n=0;
               (data.events||[]).forEach(e=>{
-                if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null){
+                // Only save if: status is done AND at least one team scored
+              if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null&&(e.status==='done')&&(e.scoreH+e.scoreA>0)){
                   db?.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});n++;
                 }
               });
