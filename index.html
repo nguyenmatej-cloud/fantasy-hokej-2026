@@ -711,52 +711,44 @@ function pidSafe(id){return id.replace(/[^a-zA-Z0-9_ÁáČčĎďÉéĚěÍíŇň
 /* ── STATISTICS ─────────────────────────────────────── */
 // /user_stats/{userKey}/{roundKey}: { players:[{name,country,pos,goals,assists,points}], updatedAt, updatedBy }
 function Statistics({players,rounds,userStats,onUserStats,myName,squadBuilds,matchDetails}){
-  const IMPORTER='MatjNg';
-  const isImporter=myName===IMPORTER;
+  const isAdmin=myName==='MatjNg';
   const [selUser,setSelUser]=useState(players[0]||'');
-  const [sortBy,setSortBy]=useState('points');
-  const [importing,setImporting]=useState(false);
-  const [aiMsg,setAiMsg]=useState('');
-  const [aiStep,setAiStep]=useState(0);
-  const [apiKey,setApiKey]=useState(()=>localStorage.getItem('hk26_gemini_key')||'');
-  const [confirmEdit,setConfirmEdit]=useState(null);
   const [selRound,setSelRound]=useState('');
+  const [sortBy,setSortBy]=useState('points');
   const [calcMsg,setCalcMsg]=useState('');
   const [calculating,setCalculating]=useState(false);
-  const fileRef=useRef();
 
-  // Map round key → game day
-  const dayList2=useMemo(()=>{const d={};MS.forEach(([t])=>{const dt=t.slice(0,10);d[dt]=true;});return Object.keys(d).sort();},[]);
-  function getRoundDay2(rk){const num=parseInt(rk.replace(/\D/g,''))-1;return(num>=0&&num<dayList2.length)?dayList2[num]:null;}
+  useEffect(()=>{if(players.length&&!selUser)setSelUser(players[0]);},[players]);
+
+  const dayList=useMemo(()=>{const d={};MS.forEach(([t])=>{const dt=t.slice(0,10);d[dt]=true;});return Object.keys(d).sort();},[]);
+  function getRoundDay(rk){const num=parseInt(rk.replace(/\D/g,''))-1;return(num>=0&&num<dayList.length)?dayList[num]:null;}
 
   async function autoCalc(roundKey){
     if(!roundKey){setCalcMsg('❌ Vyber kolo');return;}
-    setCalculating(true);setCalcMsg('⏳ Načítám data...');
+    setCalculating(true);setCalcMsg('⏳ Načítám...');
     try{
-      const roundDay=getRoundDay2(roundKey);
-      if(!roundDay)throw new Error('Kolo '+roundKey+' nemá přiřazený den');
-      const dayMatches=MS.filter(([t])=>t.startsWith(roundDay));
-      if(!dayMatches.length)throw new Error('Žádné zápasy pro den '+roundDay);
+      const day=getRoundDay(roundKey);
+      if(!day)throw new Error('Kolo nemá přiřazený den');
+      const matches=MS.filter(([t])=>t.startsWith(day));
+      if(!matches.length)throw new Error('Žádné zápasy pro '+day);
 
-      // Per-country stats from Firebase match_details OR SEED_DETAILS fallback
-      const cs={};
-      const missing=[];
-      dayMatches.forEach(([t,teamA,teamB])=>{
-        const key=roundDay+'_'+teamA+'_'+teamB;
+      // Sestav statistiky per-zemi z výsledků
+      const cs={};const missing=[];
+      matches.forEach(([t,tA,tB])=>{
+        const key=day+'_'+tA+'_'+tB;
         const det=(matchDetails&&matchDetails[key])||SEED_DETAILS[key];
-        if(!det){missing.push(COUNTRIES[teamA]?.n+' vs '+COUNTRIES[teamB]?.n);return;}
-        [teamA,teamB].forEach(tm=>{if(!cs[tm])cs[tm]={sc:{},as:{},gc:0,hasData:true};});
+        if(!det){missing.push((COUNTRIES[tA]?.n||tA)+' vs '+(COUNTRIES[tB]?.n||tB));return;}
+        [tA,tB].forEach(tm=>{if(!cs[tm])cs[tm]={sc:{},as:{},gc:0,ok:true};});
         (det.goals||[]).forEach(g=>{
-          const opp=g.team===teamA?teamB:teamA;
           if(g.scorer)cs[g.team].sc[g.scorer]=(cs[g.team].sc[g.scorer]||0)+1;
           [g.a1,g.a2].filter(Boolean).forEach(a=>{cs[g.team].as[a]=(cs[g.team].as[a]||0)+1;});
+          const opp=g.team===tA?tB:tA;
           if(cs[opp])cs[opp].gc++;
         });
       });
-      if(missing.length)setCalcMsg('⚠️ Chybí data: '+missing.join(', '));
 
-      // Compute for every group member
-      const allRes={};let n=0;
+      // Pro každého hráče skupinky spočítej ze SESTAVY
+      const allRes={};let total=0;
       players.forEach(member=>{
         const squad=squadBuilds[roundKey]?.[fk(member)];
         if(!squad)return;
@@ -765,675 +757,188 @@ function Statistics({players,rounds,userStats,onUserStats,myName,squadBuilds,mat
           const pl=squad[slot];
           if(!pl||typeof pl!=='object'||seen.has(pl.id))return;
           seen.add(pl.id);
-          const c=cs[pl.country]||{sc:{},as:{},gc:0,hasData:false};
-          const goals=c.sc[pl.name]||0;
-          const assists=c.as[pl.name]||0;
-          // Čisté konto: slot G = základní brankář, tým nepustil gól, data existují
-          const shutout=(slot==='G')&&c.hasData&&(c.gc===0);
-          stats.push({name:pl.name,country:pl.country,pos:pl.pos,goals,assists,points:goals+assists,fantasy_pts:0,shutout});
+          const c=cs[pl.country]||{sc:{},as:{},gc:0,ok:false};
+          const g=c.sc[pl.name]||0, a=c.as[pl.name]||0;
+          const shutout=(slot==='G')&&c.ok&&c.gc===0;
+          stats.push({name:pl.name,country:pl.country,pos:pl.pos,goals:g,assists:a,points:g+a,fantasy_pts:0,shutout});
         });
-        if(stats.length){allRes[fk(member)]={players:stats,updatedAt:Date.now(),updatedBy:myName+' (auto)'};n++;}
+        if(stats.length){allRes[fk(member)]={players:stats,updatedAt:Date.now(),updatedBy:myName+' (auto)'};total++;}
       });
-      if(!n)throw new Error('Žádný hráč nemá sestavu pro toto kolo');
+      if(!total)throw new Error('Žádný hráč skupinky nemá uloženou sestavu pro kolo '+roundKey);
 
-      setCalcMsg('💾 Ukládám pro '+n+' hráčů...');
+      setCalcMsg('💾 Ukládám...');
       for(const[uk,data]of Object.entries(allRes))await onUserStats(uk,roundKey,data);
 
-      const bodujici=Object.values(allRes).flatMap(d=>d.players).filter(p=>p.points>0||p.shutout);
-      setCalcMsg('✅ Hotovo! '+n+' hráčů · kolo '+roundKey+' · '+roundDay+(bodujici.length?' · '+bodujici.slice(0,6).map(p=>p.name+(p.shutout?' 🥅':'')).join(', '):''));
+      const scorers=Object.values(allRes).flatMap(d=>d.players).filter(p=>p.points>0||p.shutout);
+      const warn=missing.length?'\n⚠️ Chybí výsledky: '+missing.join(', '):'';
+      setCalcMsg('✅ Hotovo! '+total+' hráčů skupinky · kolo '+roundKey+' ('+day+')'
+        +(scorers.length?'\nBodyli: '+scorers.map(p=>p.name+(p.shutout?' 🥅':'')).join(', '):'')+warn);
     }catch(ex){setCalcMsg('❌ '+ex.message);}
     finally{setCalculating(false);}
   }
 
-  useEffect(()=>{if(players.length&&!selUser)setSelUser(players[0]);},[players]);
-
+  // Agregace přes všechna kola pro vybraného hráče
   const userRoundData=userStats[fk(selUser)]||{};
-  const importedRounds=Object.keys(userRoundData);
-
-  const dayList=useMemo(()=>{
-    const d={};MS.forEach(([t])=>{const dt=t.slice(0,10);d[dt]=true;});
-    return Object.keys(d).sort();
-  },[]);
-
-  function getRoundMatches(roundKey){
-    const num=parseInt(roundKey.replace(/\D/g,''))-1;
-    const day=num>=0&&num<dayList.length?dayList[num]:null;
-    if(!day)return{day:null,matches:[]};
-    return{day,matches:MS.filter(([t])=>t.startsWith(day))};
-  }
-
-  async function gemini(prompt,imgBase64,useSearch){
-    const parts=[];
-    if(imgBase64)parts.push({inline_data:{mime_type:'image/jpeg',data:imgBase64}});
-    parts.push({text:prompt});
-    const body={contents:[{parts}]};
-    if(useSearch)body.tools=[{google_search:{}}];
-    const r=await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+apiKey.trim(),
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}
-    );
-    if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'Gemini error '+r.status);}
-    const d=await r.json();
-    return(d.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
-  }
-
-  async function doImport(roundKey){
-    const file=fileRef.current?.files?.[0];
-    if(!file)return;
-    if(!apiKey.trim()){setAiMsg('❌ Zadej Google Gemini API klíč!');return;}
-    setImporting(true);setAiStep(0);
-    try{
-      const compressed=await compressImage(file);
-      const base64=compressed.split(',')[1];
-      const roundName=rounds.find(r=>fk(r)===roundKey)||roundKey;
-      const {day,matches}=getRoundMatches(roundKey);
-
-      const matchLines=matches.map(([t,a,b])=>{
-        const h=new Date(t).getUTCHours()+2;
-        const mn=String(new Date(t).getUTCMinutes()).padStart(2,'0');
-        return `${COUNTRIES[a]?.n||a} vs ${COUNTRIES[b]?.n||b} (${h}:${mn} CEST, ${day})`;
-      }).join('\n');
-
-      // ── KROK 1: Přečti hráče z obrázku ──────────────────────────────
-      setAiStep(1);setAiMsg('👁️ Krok 1/4 — čtu hráče z obrázku…');
-      const t1=await gemini(
-        'Ze screenshotu Tipsport Fantasy hokej vypiš JSON pole hráčů.\n'+
-        'Pro každého hráče: name (příjmení+iniciála, př. "Flek J."), pos (B=brankář/O=obránce/U=útočník), '+
-        'country (IIHF kód: FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA), fantasy_pts (číslo).\n'+
-        'Vrať POUZE JSON, nic jiného:\n'+
-        '[{"name":"Korenar J.","pos":"B","country":"CZE","fantasy_pts":15},{"name":"Flek J.","pos":"U","country":"CZE","fantasy_pts":12}]',
-        base64,false
-      );
-      const playersFound=JSON.parse((t1.match(/\[[\s\S]*?\]/)||['[]'])[0]);
-      if(!playersFound.length)throw new Error('Krok 1: žádní hráči v obrázku');
-      const countries=[...new Set(playersFound.map(p=>p.country).filter(Boolean))];
-      const goalies=playersFound.filter(p=>p.pos==='B').map(p=>p.name);
-      setAiMsg('✅ Krok 1 — nalezeni: '+playersFound.map(p=>p.name).join(', '));
-
-      // ── KROK 2: Vyhledej kompletní box score zápasů ──────────────────
-      setAiStep(2);setAiMsg('🔍 Krok 2/4 — hledám box score zápasů na Livesport…');
-      const t2=await gemini(
-        'Potřebuji KOMPLETNÍ statistiky z těchto zápasů IIHF World Championship 2026:\n\n'+
-        matchLines+'\n\n'+
-        'Pro každý zápas kde hrají tyto země: '+countries.join(', ')+', zjisti:\n'+
-        '1. Kdo dal GÓLY (jméno, počet)\n'+
-        '2. Kdo měl ASISTENCE včetně brankářů (jméno, počet) — ano, brankáři mohou mít asistenci!\n'+
-        '3. Který BRANKÁŘ chytal celý zápas a dostal NULA GÓLů (čisté konto / shutout)\n\n'+
-        'Hledej na: livesport.cz nebo flashscore.com → detail zápasu → střelci a asistenti\n'+
-        'Příklad hledání: "'+( matches[0]?((COUNTRIES[matches[0][1]]?.n||'Finland')+' '+(COUNTRIES[matches[0][2]]?.n||'Germany')):'Finland Germany')+' IIHF 2026 '+day+' goals assists box score"\n\n'+
-        'Vrať POUZE JSON pole (všichni hráči kteří skórovali/asistovali + brankáři se shutoutem):\n'+
-        '[{"name":"Flek J.","country":"CZE","goals":0,"assists":1,"shutout":false},'+
-        '{"name":"Korenar J.","country":"CZE","goals":0,"assists":0,"shutout":true}]\n\n'+
-        'Pole shutout: true pokud brankář odchytal celý zápas a nepustil žádný gól, jinak false.',
-        null,true
-      );
-      const m2=t2.match(/\[[\s\S]*\]/);
-      const boxScore=m2?JSON.parse(m2[0]):[];
-      setAiMsg('✅ Krok 2 — box score: '+boxScore.length+' záznamů');
-
-      // ── KROK 3: Spáruj hráče se statistikami ─────────────────────────
-      setAiStep(3);setAiMsg('🔗 Krok 3/4 — páruji hráče se statistikami…');
-      const norm=s=>(s||'').toLowerCase().replace(/[\s.\-']/g,'');
-      const boxMap={};
-      boxScore.forEach(s=>{
-        boxMap[norm(s.name)]={goals:Number(s.goals)||0,assists:Number(s.assists)||0,shutout:!!s.shutout};
-      });
-
-      const finalPlayers=playersFound.map(pl=>{
-        const k=norm(pl.name);
-        let st=boxMap[k];
-        if(!st){
-          // Fuzzy: zkus prvních 5 znaků
-          const fnd=Object.keys(boxMap).find(bk=>bk.length>=4&&(bk.startsWith(k.slice(0,5))||k.startsWith(bk.slice(0,5))));
-          if(fnd)st=boxMap[fnd];
-        }
-        st=st||{goals:0,assists:0,shutout:false};
-        const isGoalie=pl.pos==='B';
-        return{
-          name:pl.name,country:pl.country,pos:pl.pos,
-          fantasy_pts:pl.fantasy_pts||0,
-          goals:st.goals,assists:st.assists,
-          points:st.goals+st.assists,
-          shutout:isGoalie?st.shutout:false
-        };
-      });
-
-      const scored=finalPlayers.filter(p=>p.points>0||p.shutout).map(p=>p.name+(p.shutout?' 🥅':'')).join(', ');
-      setAiMsg('✅ Krok 3 — bodující: '+(scored||'nikdo'));
-
-      // ── KROK 4: Ulož do Firebase ──────────────────────────────────────
-      setAiStep(4);setAiMsg('💾 Krok 4/4 — ukládám…');
-      await onUserStats(fk(selUser),roundKey,{players:finalPlayers,updatedAt:Date.now(),updatedBy:myName});
-      setAiMsg('✅ Hotovo! '+finalPlayers.length+' hráčů · kolo '+roundName+(scored?'\nBodyli: '+scored:''));
-      setConfirmEdit(null);setSelRound('');
-    }catch(ex){setAiMsg('❌ '+ex.message);}
-    finally{setImporting(false);setAiStep(0);if(fileRef.current)fileRef.current.value='';}
-  }
-
-  function triggerImport(roundKey){
-    setSelRound(roundKey);setAiMsg('');
-    if(importedRounds.includes(roundKey)){setConfirmEdit(roundKey);}
-    else{setConfirmEdit(null);setTimeout(()=>fileRef.current?.click(),50);}
-  }
-
-  // Agregace statistik přes všechna kola
   const playerMap={};
   Object.entries(userRoundData).forEach(([,rd])=>{
     (rd.players||[]).forEach(pl=>{
-      const key=pl.country+'_'+pl.name;
-      if(!playerMap[key])playerMap[key]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0,fantasy_pts:0,shutouts:0};
-      playerMap[key].rounds++;
-      playerMap[key].goals+=(pl.goals||0);
-      playerMap[key].assists+=(pl.assists||0);
-      playerMap[key].points+=(pl.points||0);
-      playerMap[key].fantasy_pts+=(pl.fantasy_pts||0);
-      if(pl.shutout)playerMap[key].shutouts++;
+      const k=pl.country+'_'+pl.name;
+      if(!playerMap[k])playerMap[k]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0,shutouts:0};
+      playerMap[k].rounds++;
+      playerMap[k].goals+=(pl.goals||0);
+      playerMap[k].assists+=(pl.assists||0);
+      playerMap[k].points+=(pl.points||0);
+      if(pl.shutout)playerMap[k].shutouts++;
     });
   });
   let playerList=Object.values(playerMap);
-  if(sortBy==='points')playerList.sort((a,b)=>b.points-a.points);
+  if(sortBy==='points')playerList.sort((a,b)=>b.points-a.points||b.goals-a.goals);
   else if(sortBy==='goals')playerList.sort((a,b)=>b.goals-a.goals);
   else if(sortBy==='assists')playerList.sort((a,b)=>b.assists-a.assists);
   else if(sortBy==='rounds')playerList.sort((a,b)=>b.rounds-a.rounds);
-  else if(sortBy==='fantasy')playerList.sort((a,b)=>b.fantasy_pts-a.fantasy_pts);
-  const totals=playerList.reduce((s,p)=>({goals:s.goals+p.goals,assists:s.assists+p.assists,points:s.points+p.points,fantasy_pts:s.fantasy_pts+(p.fantasy_pts||0),shutouts:s.shutouts+(p.shutouts||0)}),{goals:0,assists:0,points:0,fantasy_pts:0,shutouts:0});
-
-  const STEP_LABELS=['','👁️ Čtu obrázek','🔍 Hledám box score','🔗 Páruji hráče','💾 Ukládám'];
+  const tot=playerList.reduce((s,p)=>({g:s.g+p.goals,a:s.a+p.assists,kb:s.kb+p.points,so:s.so+p.shutouts}),{g:0,a:0,kb:0,so:0});
 
   return(
     <div>
-      {/* IMPORTER */}
-      {isImporter&&(
-        <div style={{...S.card,marginBottom:12,border:'1px solid rgba(56,189,248,.25)',background:'rgba(56,189,248,.04)'}}>
-          <span style={{...S.lbl,color:C.cyan}}>📊 IMPORT STATISTIK — MatjNg</span>
-
-          {/* AUTO CALC — FREE */}
-          <div style={{background:'rgba(74,222,128,.06)',border:'1px solid rgba(74,222,128,.25)',borderRadius:10,padding:'10px 12px',marginBottom:12}}>
-            <div style={{fontSize:11,color:C.green,fontWeight:900,marginBottom:4}}>⚡ AUTO-VÝPOČET — ZDARMA</div>
-            <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Vezme data ze záložky Výsledky → automaticky spočítá góly, asistence a čistá konta. Nejdřív musí být v záložce Výsledky zadány detaily zápasů.</div>
-            <div style={{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}}>
-              {rounds.map(r=>{const rk_=fk(r);return(
-                <button key={r} onClick={()=>setSelRound(selRound===rk_?'':rk_)} style={{padding:'5px 12px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(selRound===rk_,'#059669')}}>{r}</button>
-              );})}
-            </div>
-            <button onClick={()=>autoCalc(selRound)} disabled={calculating||!selRound}
-              style={{width:'100%',padding:'10px',border:'none',borderRadius:10,background:selRound?'linear-gradient(135deg,#059669,#10b981)':'rgba(255,255,255,.06)',color:selRound?'#fff':C.faint,fontWeight:900,fontSize:13,cursor:selRound&&!calculating?'pointer':'not-allowed',fontFamily:'inherit'}}>
-              {calculating?'Počítám…':'⚡ Vypočítat pro všechny hráče'}
-            </button>
-            {calcMsg&&<div style={{marginTop:6,fontSize:11,color:calcMsg.startsWith('✅')?C.green:calcMsg.startsWith('❌')?C.red:C.muted}}>{calcMsg}</div>}
-          </div>
-
-          {/* User selector */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Importovat pro:</div>
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              {players.map(p=><button key={p} onClick={()=>setSelUser(p)} style={{padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(selUser===p,'#059669')}}>{p}</button>)}
+      {/* ── ADMIN: Auto-výpočet ─────────────────────── */}
+      {isAdmin&&(
+        <div style={{...S.card,marginBottom:16,border:'1px solid rgba(74,222,128,.3)',background:'rgba(74,222,128,.04)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+            <span style={{fontSize:18}}>⚡</span>
+            <div>
+              <div style={{fontWeight:900,fontSize:13,color:C.green}}>Auto-výpočet statistik</div>
+              <div style={{fontSize:10,color:C.muted}}>Vezme data ze záložky Výsledky → spočítá góly, asistence a čistá konta pro všechny ze sestavy</div>
             </div>
           </div>
-
-          {/* Round selector */}
-          {rounds.length>0&&(
-            <div style={{marginBottom:10}}>
-              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Kolo:</div>
-              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                {rounds.map(r=>{
-                  const rk_=fk(r);const done_=importedRounds.includes(rk_);const rd=userRoundData[rk_];
-                  return(
-                    <button key={r} onClick={()=>triggerImport(rk_)} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'8px 14px',border:'none',borderRadius:12,cursor:'pointer',fontFamily:'inherit',
-                      background:done_?'rgba(74,222,128,.15)':'rgba(255,255,255,.06)',outline:done_?'1px solid rgba(74,222,128,.4)':`1px dashed ${C.faint}`}}>
-                      <span style={{fontSize:12,fontWeight:800,color:done_?C.green:C.muted}}>{done_?'✅ ':''}{r}</span>
-                      {done_&&<span style={{fontSize:8,color:C.muted}}>{rd?.players?.length||0} hráčů · ✏️ přepsat</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Confirm overwrite */}
-          {confirmEdit&&(
-            <div style={{background:'rgba(251,146,60,.1)',border:'1px solid rgba(251,146,60,.35)',borderRadius:10,padding:'10px 12px',marginBottom:10}}>
-              <div style={{fontSize:12,fontWeight:700,color:C.orange,marginBottom:8}}>⚠️ Kolo „{rounds.find(r=>fk(r)===confirmEdit)||confirmEdit}" již má data. Přepsat?</div>
-              <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>{setConfirmEdit(null);setTimeout(()=>fileRef.current?.click(),50);}} style={{flex:1,padding:'8px',background:'linear-gradient(135deg,#92400e,#b45309)',border:'none',borderRadius:8,color:'#fff',fontWeight:800,cursor:'pointer',fontFamily:'inherit'}}>✏️ Přepsat</button>
-                <button onClick={()=>{setConfirmEdit(null);setSelRound('');}} style={{flex:1,padding:'8px',background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,cursor:'pointer',fontFamily:'inherit'}}>Zrušit</button>
-              </div>
-            </div>
-          )}
-
-          {/* Progress steps */}
-          {importing&&(
-            <div style={{marginBottom:8}}>
-              <div style={{display:'flex',gap:4,marginBottom:8}}>
-                {STEP_LABELS.slice(1).map((lbl,i)=>(
-                  <div key={i} style={{flex:1,padding:'5px 4px',borderRadius:8,textAlign:'center',fontSize:9,fontWeight:700,
-                    background:aiStep>i+1?'rgba(74,222,128,.2)':aiStep===i+1?'rgba(56,189,248,.2)':'rgba(255,255,255,.04)',
-                    color:aiStep>i+1?C.green:aiStep===i+1?C.cyan:C.faint,
-                    border:aiStep===i+1?`1px solid ${C.cyan}`:'1px solid transparent'}}>
-                    {aiStep>i+1?'✓ ':''}{lbl}
-                  </div>
-                ))}
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}><Spinner/><div style={{fontSize:12,color:C.cyan,fontWeight:700}}>{aiMsg}</div></div>
-            </div>
-          )}
-
-          <input ref={fileRef} type="file" accept="image/*" onChange={e=>{if(e.target.files?.[0]&&selRound)doImport(selRound);}} style={{display:'none'}}/>
-          {!importing&&<label style={{display:'block',border:`2px dashed rgba(74,222,128,.3)`,borderRadius:10,padding:'12px',textAlign:'center',cursor:'pointer',marginTop:4}}>
-            <input type="file" accept="image/*" onChange={e=>{if(e.target.files?.[0]&&selRound)doImport(selRound);else if(!selRound)setAiMsg('❌ Nejdřív vyber kolo!');}} style={{display:'none'}}/>
-            <div style={{fontSize:24,marginBottom:4}}>📸</div>
-            <div style={{fontSize:12,color:C.green,fontWeight:700}}>Nahrát screenshot pro: {selUser} · kolo {rounds.find(r=>fk(r)===selRound)||'— vyber kolo'}</div>
-          </label>}
-          {aiMsg&&!importing&&<div style={{marginTop:8,padding:'8px 10px',borderRadius:8,background:'rgba(255,255,255,.04)',fontSize:11,color:aiMsg.startsWith('✅')?C.green:aiMsg.startsWith('❌')?C.red:C.cyan,whiteSpace:'pre-line'}}>{aiMsg}</div>}
-        </div>
-      )}
-
-      {/* User selector */}
-      <div style={{marginBottom:12}}>
-        <span style={S.lbl}>STATISTIKY HRÁČE</span>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-          {players.map(p=>{const cnt=Object.keys(userStats[fk(p)]||{}).length;return(
-            <button key={p} onClick={()=>setSelUser(p)} style={{display:'flex',alignItems:'center',gap:5,padding:'7px 14px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selUser===p)}}>
-              {cnt>0?<span style={{background:C.green,color:'#000',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:900,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{cnt}</span>:'⏳'} {p}
-            </button>
-          );})}
-        </div>
-      </div>
-
-      {/* Imported rounds overview */}
-      {rounds.length>0&&(
-        <div style={{...S.card,marginBottom:12,padding:'10px 12px'}}>
-          <span style={S.lbl}>IMPORTOVANÁ KOLA — {selUser.toUpperCase()}</span>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            {rounds.map(r=>{const rk_=fk(r);const done_=userRoundData[rk_];return(
-              <div key={r} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'6px 12px',borderRadius:10,background:done_?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)',border:done_?'1px solid rgba(74,222,128,.3)':`1px dashed ${C.faint}`}}>
-                <span style={{fontSize:11,fontWeight:800,color:done_?C.green:C.faint}}>{done_?'✅ ':''}{r}</span>
-                {done_&&<span style={{fontSize:8,color:C.muted}}>{done_.players?.length||0} hráčů</span>}
-              </div>
-            );})}
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+            {rounds.map(r=>{
+              const rk_=fk(r);
+              const done=Object.keys(userStats).some(uk=>userStats[uk]?.[rk_]);
+              return(
+                <button key={r} onClick={()=>setSelRound(selRound===rk_?'':rk_)}
+                  style={{padding:'7px 16px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selRound===rk_,'#059669')}}>
+                  {done?'✅ ':''}{r}
+                </button>
+              );
+            })}
           </div>
-        </div>
-      )}
-
-      {/* Sort */}
-      <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>
-        {[['points','⭐ KB'],['fantasy','🎮 FB'],['goals','⚽ G'],['assists','🎯 A'],['rounds','🔄 Kola']].map(([k,l])=>(
-          <button key={k} onClick={()=>setSortBy(k)} style={{padding:'5px 12px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(sortBy===k)}}>
-            {l}{sortBy===k?' ↓':''}
+          <button onClick={()=>autoCalc(selRound)} disabled={calculating||!selRound}
+            style={{width:'100%',padding:'12px',border:'none',borderRadius:12,fontFamily:'inherit',fontSize:14,fontWeight:900,
+              background:selRound&&!calculating?'linear-gradient(135deg,#059669,#10b981)':'rgba(255,255,255,.08)',
+              color:selRound?'#fff':C.faint,cursor:selRound&&!calculating?'pointer':'default'}}>
+            {calculating?<span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><Spinner sz={14}/>Počítám…</span>:'⚡ Vypočítat pro všechny hráče skupinky'}
           </button>
-        ))}
-      </div>
-
-      {/* Stats table */}
-      {playerList.length===0?(
-        <div style={{textAlign:'center',padding:50,color:C.muted}}>
-          <div style={{fontSize:40,marginBottom:8}}>📊</div>
-          <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{selUser}</div>
-          <div style={{fontSize:12}}>{isImporter?'Nahraj screenshot výše':'Čekáme na import od MatjNg'}</div>
-        </div>
-      ):(
-        <div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6,marginBottom:12}}>
-            {[['⭐',totals.points,'KB',C.gold],['🎮',totals.fantasy_pts,'FB','#818cf8'],['⚽',totals.goals,'Góly','#4ade80'],['🎯',totals.assists,'Asistence','#38bdf8'],['🥅',totals.shutouts,'Shutouty','#a78bfa']].map(([ic,val,lbl,col])=>(
-              <div key={lbl} style={{...S.card,textAlign:'center',padding:'8px 4px',border:`1px solid ${col}33`}}>
-                <div style={{fontSize:14}}>{ic}</div>
-                <div style={{fontSize:20,fontWeight:900,color:col}}>{val}</div>
-                <div style={{fontSize:8,color:C.muted}}>{lbl}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{...S.card,padding:0,overflow:'hidden'}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 26px 34px 28px 28px 34px 38px 28px',padding:'7px 8px',background:'rgba(255,255,255,.05)',borderBottom:`1px solid ${C.border}`}}>
-              {[['HRÁČ',''],['P',''],['KOLA','rounds'],['G','goals'],['A','assists'],['KB','points'],['FB','fantasy'],['SO','']].map(([lbl,key])=>(
-                <div key={lbl} onClick={key?()=>setSortBy(key):undefined}
-                  style={{fontSize:8,fontWeight:700,textAlign:lbl==='HRÁČ'?'left':'center',cursor:key?'pointer':'default',letterSpacing:.5,
-                    textDecoration:sortBy===key?'underline':'none',
-                    color:sortBy===key?'#fff':lbl==='G'?'#4ade80':lbl==='A'?'#38bdf8':lbl==='KB'?C.gold:lbl==='FB'?'#818cf8':lbl==='SO'?'#a78bfa':C.muted}}>
-                  {lbl}{sortBy===key?' ↓':''}
-                </div>
-              ))}
+          {calcMsg&&(
+            <div style={{marginTop:8,padding:'10px 12px',borderRadius:10,background:'rgba(0,0,0,.2)',fontSize:11,
+              color:calcMsg.startsWith('✅')?C.green:calcMsg.startsWith('❌')?C.red:C.muted,
+              whiteSpace:'pre-wrap',lineHeight:1.6}}>
+              {calcMsg}
             </div>
-            {playerList.map((pl,i)=>(
-              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 26px 34px 28px 28px 34px 38px 28px',padding:'7px 8px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.015)',alignItems:'center'}}>
-                <div style={{display:'flex',alignItems:'center',gap:5}}>
-                  <span style={{fontSize:11,whiteSpace:'nowrap',flexShrink:0}}>{COUNTRIES[pl.country]?.f||''} {pl.country}</span>
-                  <div style={{fontWeight:700,fontSize:12,lineHeight:1.2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pl.name}</div>
-                </div>
-                <div style={{textAlign:'center',fontSize:9,color:pl.pos==='B'?'#a78bfa':pl.pos==='O'?'#38bdf8':'#4ade80',fontWeight:800}}>{pl.pos}</div>
-                <div style={{textAlign:'center',fontSize:12,fontWeight:700,color:C.gold}}>{pl.rounds}</div>
-                <div style={{textAlign:'center',fontSize:13,fontWeight:800,color:'#4ade80'}}>{pl.goals}</div>
-                <div style={{textAlign:'center',fontSize:13,fontWeight:800,color:'#38bdf8'}}>{pl.assists}</div>
-                <div style={{textAlign:'center',fontSize:14,fontWeight:900,color:pl.points>0?C.gold:C.muted}}>{pl.points}</div>
-                <div style={{textAlign:'center',fontSize:12,fontWeight:700,color:'#818cf8'}}>{pl.fantasy_pts||0}</div>
-                <div style={{textAlign:'center',fontSize:14}}>{pl.shutouts>0?'🥅'+pl.shutouts:''}</div>
-              </div>
-            ))}
-            <div style={{padding:'6px 8px',fontSize:8,color:C.muted}}>KB=kanadské body · FB=fantasy body · G=góly · A=asistence · SO=shutouty (čistá konta)</div>
-          </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-const SEED_DETAILS={
-  "2026-05-15_SWE_CAN":{h:5,a:3,
-    goals:[
-      {min:"02:21",period:1,team:"CAN",scorer:"Tavares J.",a1:"Nurse D.",a2:"Thomas R.",type:""},
-      {min:"16:00",period:1,team:"CAN",scorer:"O'Reilly R.",a1:"Vilardi G.",a2:"Rielly M.",type:""},
-      {min:"08:21",period:2,team:"SWE",scorer:"Larsson J.",a1:"Berglund J.",a2:"",type:""},
-      {min:"11:04",period:2,team:"SWE",scorer:"Raymond L.",a1:"Ekman-Larsson O.",a2:"Berglund J.",type:"PP"},
-      {min:"14:16",period:2,team:"CAN",scorer:"Holloway D.",a1:"Minten F.",a2:"DeMelo D.",type:""},
-      {min:"15:33",period:2,team:"SWE",scorer:"Ekholm M.",a1:"Karlsson L.",a2:"Holmstrom S.",type:""},
-      {min:"03:21",period:3,team:"CAN",scorer:"Brown C.",a1:"Martone P.",a2:"Minten F.",type:""},
-      {min:"12:59",period:3,team:"CAN",scorer:"Cozens D.",a1:"Martone P.",a2:"Nurse D.",type:""}
-    ],
-    penalties:[
-      {min:"03:11",period:1,team:"CAN",player:"Mateychuk D.",min_val:2,type:"Podrážení"},
-      {min:"12:29",period:1,team:"SWE",player:"Stenberg I.",min_val:2,type:"Krosček"},
-      {min:"18:24",period:1,team:"SWE",player:"Johansson A.",min_val:2,type:"Vysoká hůl"},
-      {min:"03:09",period:2,team:"CAN",player:"Wotherspoon P.",min_val:2,type:"Vysoká hůl"},
-      {min:"10:56",period:2,team:"CAN",player:"Whitecloud Z.",min_val:2,type:"Podrážení"},
-      {min:"15:38",period:3,team:"SWE",player:"Ekman-Larsson O.",min_val:2,type:"Hákování"},
-      {min:"20:00",period:3,team:"SWE",player:"Karlsson L.",min_val:2,type:"Podrážení"}
-    ]},
-  "2026-05-15_FIN_GER":{h:3,a:1,
-    goals:[
-      {min:"11:38",period:1,team:"FIN",scorer:"Barkov A.",a1:"Rantanen M.",a2:"",type:""},
-      {min:"23:14",period:2,team:"FIN",scorer:"Rantanen M.",a1:"Barkov A.",a2:"Komarov L.",type:""},
-      {min:"38:02",period:2,team:"GER",scorer:"Seider M.",a1:"Sturm D.",a2:"Ehliz Y.",type:""},
-      {min:"55:20",period:3,team:"FIN",scorer:"Komarov L.",a1:"Barkov A.",a2:"",type:"PP"}
-    ],
-    penalties:[
-      {min:"29:10",period:2,team:"GER",player:"Ehliz Y.",min_val:2,type:"Podrážení"}
-    ]},
-  "2026-05-15_USA_SUI":{h:1,a:3,
-    goals:[
-      {min:"09:44",period:1,team:"SUI",scorer:"Hischier N.",a1:"Meier T.",a2:"Fiala K.",type:""},
-      {min:"25:31",period:2,team:"USA",scorer:"Caufield C.",a1:"",a2:"",type:""},
-      {min:"41:17",period:3,team:"SUI",scorer:"Fiala K.",a1:"Hischier N.",a2:"Niederreiter N.",type:""},
-      {min:"58:44",period:3,team:"SUI",scorer:"Meier T.",a1:"Fiala K.",a2:"Hischier N.",type:"EN"}
-    ],
-    penalties:[]},
-  "2026-05-15_DEN_CZE":{h:1,a:4,
-    goals:[
-      {min:"05:52",period:1,team:"CZE",scorer:"Červenka R.",a1:"Flek J.",a2:"Kubalík D.",type:""},
-      {min:"17:44",period:1,team:"CZE",scorer:"Kubalík D.",a1:"Červenka R.",a2:"Říčka M.",type:""},
-      {min:"31:58",period:2,team:"DEN",scorer:"Nielsen F.",a1:"Eller L.",a2:"",type:"PP"},
-      {min:"44:20",period:3,team:"CZE",scorer:"Flek J.",a1:"Červenka R.",a2:"Kratěna P.",type:""},
-      {min:"52:11",period:3,team:"CZE",scorer:"Říčka M.",a1:"Kubalík D.",a2:"",type:""}
-    ],
-    penalties:[
-      {min:"15:10",period:1,team:"DEN",player:"Eller L.",min_val:2,type:"Podrážení"},
-      {min:"30:22",period:2,team:"CZE",player:"Polák M.",min_val:2,type:"Faul"}
-    ]}
-};
 
-/* ── RESULTS ──────────────────────────────────────────── */
-// goal: {min,period,team,scorer,a1,a2,type}  type='' normal, 'PP'=přesilovka, 'SH'=oslabení, 'PS'=trestné střílení
-// penalty: {min,period,team,player,min_val,type}
-
-function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
-  const dayMap=useMemo(()=>{const d={};MS.forEach(([t,a,b])=>{const dt=t.slice(0,10);if(!d[dt])d[dt]=[];d[dt].push([t,a,b]);});return d;},[]);
-  const days=Object.keys(dayMap).sort();
-  const todayISO=new Date().toISOString().slice(0,10);
-  const defaultDay=days.includes(todayISO)?todayISO:(days.findLast(d=>d<=todayISO)||days[0]||todayISO);
-  const [selDay,setSelDay]=useState(defaultDay);
-  const [selMatch,setSelMatch]=useState(null); // key of expanded match
-  const [editKey,setEditKey]=useState(null);
-  const [editData,setEditData]=useState(null);
-  const [saving,setSaving]=useState(false);
-
-  function getDetails(key){return matchDetails?.[key]||SEED_DETAILS[key]||null;}
-  function getScore(key){const d=getDetails(key);if(d?.h!=null)return{h:d.h,a:d.a};return matchResults?.[key]||null;}
-
-  // Group events by period, compute running score
-  function getPeriodsData(det,teamA,teamB){
-    if(!det)return[];
-    const allEvents=[];
-    let sh=0,sa=0;
-    // merge goals and penalties, sort by period+min
-    const toSecs=min=>{const[m,s]=(min||'0:0').split(':');return parseInt(m)*60+parseInt(s||0);};
-    const sorted=[
-      ...(det.goals||[]).map(g=>({...g,_type:'goal'})),
-      ...(det.penalties||[]).map(p=>({...p,_type:'penalty'}))
-    ].sort((a,b)=>(a.period-b.period)||toSecs(a.min)-toSecs(b.min));
-
-    // Add running score to goals
-    sorted.forEach(e=>{if(e._type==='goal'){if(e.team===teamA){sh++;}else{sa++;} e._sh=sh;e._sa=sa;}});
-
-    const periods=[1,2,3];
-    return periods.map(p=>{
-      const evs=sorted.filter(e=>e.period===p);
-      const goals=evs.filter(e=>e._type==='goal');
-      const ph=goals.filter(g=>g.team===teamA).length;
-      const pa=goals.filter(g=>g.team===teamB).length;
-      return{period:p,events:evs,ph,pa};
-    }).filter(p=>p.events.length>0||(det.h!=null&&p.period<=3));
-  }
-
-  function startEdit(key,teamA,teamB){
-    const det=getDetails(key)||{h:'',a:'',goals:[],penalties:[]};
-    setEditKey(key);setEditData({...det,teamA,teamB,goals:[...(det.goals||[])],penalties:[...(det.penalties||[])]});
-  }
-  function addGoal(){setEditData(d=>({...d,goals:[...d.goals,{min:'00:00',period:1,team:d.teamA,scorer:'',a1:'',a2:'',type:''}]}));}
-  function updGoal(i,f,v){setEditData(d=>{const g=[...d.goals];g[i]={...g[i],[f]:v};return{...d,goals:g};});}
-  function addPen(){setEditData(d=>({...d,penalties:[...d.penalties,{min:'00:00',period:1,team:d.teamA,player:'',min_val:2,type:'Podrážení'}]}));}
-  function updPen(i,f,v){setEditData(d=>{const p=[...d.penalties];p[i]={...p[i],[f]:f==='min_val'?Number(v):v};return{...d,penalties:p};});}
-  async function saveEdit(){setSaving(true);await onMatchDetails(editKey,editData);setSaving(false);setEditKey(null);}
-
-  const PERIOD_LABELS=['','1. TŘETINA','2. TŘETINA','3. TŘETINA','Prodloužení','Nájezdy'];
-
-  return(
-    <div>
-      {/* Day selector */}
+      {/* ── Výběr hráče ────────────────────────────── */}
       <div style={{marginBottom:12}}>
-        <span style={S.lbl}>HRACÍ DEN</span>
-        <div style={{display:'flex',gap:5,overflowX:'auto',paddingBottom:4}}>
-          {days.map(d=>{
-            const dt=new Date(d+'T12:00:00Z');
-            const lbl=dt.toLocaleDateString('cs',{day:'numeric',month:'numeric'});
-            const isToday=d===todayISO;
-            const hasDone=dayMap[d]?.some(([t,a,b])=>{const k=d+'_'+a+'_'+b;return getScore(k)!=null;});
+        <span style={S.lbl}>HRÁČ SKUPINKY</span>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {players.map(p=>{
+            const cnt=Object.keys(userStats[fk(p)]||{}).length;
             return(
-              <button key={d} onClick={()=>setSelDay(d)} style={{flexShrink:0,padding:'6px 14px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(selDay===d)}}>
-                {lbl}{isToday?' 🔴':''}
+              <button key={p} onClick={()=>setSelUser(p)}
+                style={{display:'flex',alignItems:'center',gap:5,padding:'7px 14px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selUser===p)}}>
+                {cnt>0
+                  ?<span style={{background:C.green,color:'#000',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:900,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{cnt}</span>
+                  :<span style={{fontSize:12}}>⏳</span>
+                } {p}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Matches */}
-      <div style={{display:'flex',flexDirection:'column',gap:8}}>
-        {(dayMap[selDay]||[]).sort((a,b)=>a[0].localeCompare(b[0])).map(([t,teamA,teamB])=>{
-          const key=t.slice(0,10)+'_'+teamA+'_'+teamB;
-          const st=matchStatus(t);const isLive=st==='live';const isDone=st==='done';
-          const score=getScore(key);const det=getDetails(key);
-          const h=new Date(t).getUTCHours()+2;const mn=String(new Date(t).getUTCMinutes()).padStart(2,'0');
-          const isOpen=selMatch===key;
-          const fa=COUNTRIES[teamA]?.f||'';const fb=COUNTRIES[teamB]?.f||'';
-          const na=COUNTRIES[teamA]?.n||teamA;const nb=COUNTRIES[teamB]?.n||teamB;
-          const periodsData=det?getPeriodsData(det,teamA,teamB):[];
-
-          return(
-            <div key={key} style={{background:C.bg2,borderRadius:14,overflow:'hidden',border:isLive?'1px solid rgba(34,197,94,.5)':score?`1px solid rgba(56,189,248,.2)`:`1px solid ${C.border}`}}>
-
-              {/* Match header — klikací pro rozbalení */}
-              <div onClick={()=>setSelMatch(isOpen?null:key)} style={{padding:'12px 14px',cursor:'pointer',background:isLive?'rgba(34,197,94,.06)':'transparent',animation:isLive?'livePulse 2s ease-in-out infinite':'none'}}>
-                {/* Date/status row */}
-                <div style={{display:'flex',justifyContent:'center',marginBottom:6,gap:8,alignItems:'center'}}>
-                  {isLive&&<><div style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',animation:'blink 1s infinite'}}/><span style={{fontSize:10,fontWeight:900,color:C.green,letterSpacing:1}}>LIVE</span></>}
-                  {isDone&&<span style={{fontSize:10,color:C.muted,fontWeight:700}}>Konec</span>}
-                  {!isLive&&!isDone&&<span style={{fontSize:10,color:C.cyan,fontWeight:700}}>{h}:{mn} CEST</span>}
-                </div>
-                {/* Teams + score */}
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <div style={{flex:1,display:'flex',alignItems:'center',gap:8}}>
-                    <div style={{width:44,height:44,borderRadius:10,background:'rgba(255,255,255,.12)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,flexShrink:0}}>
-                      <Flag code={teamA} size={28}/>
-                      <span style={{fontSize:8,fontWeight:900,color:'#fff',letterSpacing:.5}}>{teamA}</span>
-                    </div>
-                    <div style={{fontWeight:900,fontSize:14,color:score&&score.h>score.a?'#fff':score?C.muted:C.text,lineHeight:1.2}}>{na}</div>
-                  </div>
-                  <div style={{textAlign:'center',minWidth:90}}>
-                    {score?(
-                      <div style={{fontSize:32,fontWeight:900,color:'#fff',letterSpacing:2,fontVariantNumeric:'tabular-nums'}}>{score.h}<span style={{color:C.faint,fontSize:22}}> – </span>{score.a}</div>
-                    ):(
-                      <div style={{fontSize:18,color:C.muted,fontWeight:800}}>vs</div>
-                    )}
-                  </div>
-                  <div style={{flex:1,display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end'}}>
-                    <div style={{fontWeight:900,fontSize:14,color:score&&score.a>score.h?'#fff':score?C.muted:C.text,lineHeight:1.2,textAlign:'right'}}>{nb}</div>
-                    <div style={{width:44,height:44,borderRadius:10,background:'rgba(255,255,255,.12)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,flexShrink:0}}>
-                      <Flag code={teamB} size={28}/>
-                      <span style={{fontSize:8,fontWeight:900,color:'#fff',letterSpacing:.5}}>{teamB}</span>
-                    </div>
-                  </div>
-                </div>
+      {/* ── Importovaná kola ───────────────────────── */}
+      {rounds.length>0&&(
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+          {rounds.map(r=>{
+            const rk_=fk(r);const d=userRoundData[rk_];
+            return(
+              <div key={r} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'6px 14px',borderRadius:10,minWidth:50,
+                background:d?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)',
+                border:d?'1px solid rgba(74,222,128,.3)':`1px dashed ${C.faint}`}}>
+                <span style={{fontSize:11,fontWeight:800,color:d?C.green:C.faint}}>{r}</span>
+                <span style={{fontSize:8,color:C.muted}}>{d?d.players?.length+' hráčů':'–'}</span>
               </div>
+            );
+          })}
+        </div>
+      )}
 
-              {/* Period detail — rozbalené */}
-              {isOpen&&det&&periodsData.map(({period,events,ph,pa})=>(
-                <div key={period}>
-                  {/* Period header */}
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 14px',background:'rgba(255,255,255,.05)',borderTop:`1px solid ${C.border}`}}>
-                    <span style={{fontSize:11,fontWeight:900,color:C.cyan,letterSpacing:1}}>{PERIOD_LABELS[period]||period+'. TŘETINA'}</span>
-                    <span style={{fontSize:13,fontWeight:900,color:C.muted}}>{ph} – {pa}</span>
-                  </div>
-                  {/* Events */}
-                  {events.map((ev,ei)=>{
-                    const isHome=ev.team===teamA;
-                    if(ev._type==='goal'){
-                      const typeLabel=ev.type==='PP'?' (Z přesilovky)':ev.type==='SH'?' (Z oslabení)':ev.type==='EN'?' (Do prázdné)':ev.type==='PS'?' (Nájezd)':'';
-                      const assists=[ev.a1,ev.a2].filter(Boolean).join(' + ');
-                      return(
-                        <div key={ei} style={{display:'flex',alignItems:'center',padding:'8px 14px',borderBottom:`1px solid rgba(255,255,255,.04)`,gap:8}}>
-                          {isHome?(
-                            <>
-                              <span style={{fontSize:11,color:C.muted,minWidth:38,fontVariantNumeric:'tabular-nums'}}>{ev.min}</span>
-                              <div style={{width:28,height:22,borderRadius:6,background:'rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:900,color:'#fff',flexShrink:0,letterSpacing:.5}}>{ev._sh}–{ev._sa}</div>
-                              <div style={{flex:1}}>
-                                <div style={{fontWeight:800,fontSize:13}}>{ev.scorer}<span style={{fontSize:10,color:C.muted}}>{typeLabel}</span></div>
-                                {assists&&<div style={{fontSize:11,color:C.muted}}>{assists}</div>}
-                              </div>
-                              <span style={{fontSize:16}}>🏒</span>
-                            </>
-                          ):(
-                            <>
-                              <span style={{fontSize:16}}>🏒</span>
-                              <div style={{flex:1,textAlign:'right'}}>
-                                <div style={{fontWeight:800,fontSize:13}}>{ev.scorer}<span style={{fontSize:10,color:C.muted}}>{typeLabel}</span></div>
-                                {assists&&<div style={{fontSize:11,color:C.muted}}>{assists}</div>}
-                              </div>
-                              <div style={{width:28,height:22,borderRadius:6,background:'rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:900,color:'#fff',flexShrink:0,letterSpacing:.5}}>{ev._sh}–{ev._sa}</div>
-                              <span style={{fontSize:11,color:C.muted,minWidth:38,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{ev.min}</span>
-                            </>
-                          )}
-                        </div>
-                      );
-                    }else{
-                      // Penalty
-                      return(
-                        <div key={ei} style={{display:'flex',alignItems:'center',padding:'6px 14px',borderBottom:`1px solid rgba(255,255,255,.04)`,gap:8,background:'rgba(251,146,60,.03)'}}>
-                          {isHome?(
-                            <>
-                              <span style={{fontSize:11,color:C.muted,minWidth:38,fontVariantNumeric:'tabular-nums'}}>{ev.min}</span>
-                              <div style={{width:22,height:22,borderRadius:5,background:'#ca8a04',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:900,color:'#fff',flexShrink:0}}>{ev.min_val}</div>
-                              <div style={{flex:1,fontSize:12,color:C.orange}}>{ev.player} <span style={{color:C.muted,fontSize:10}}>({ev.type})</span></div>
-                            </>
-                          ):(
-                            <>
-                              <div style={{flex:1,textAlign:'right',fontSize:12,color:C.orange}}><span style={{color:C.muted,fontSize:10}}>({ev.type})</span> {ev.player}</div>
-                              <div style={{width:22,height:22,borderRadius:5,background:'#ca8a04',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:900,color:'#fff',flexShrink:0}}>{ev.min_val}</div>
-                              <span style={{fontSize:11,color:C.muted,minWidth:38,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{ev.min}</span>
-                            </>
-                          )}
-                        </div>
-                      );
-                    }
-                  })}
-                </div>
-              ))}
-
-              {/* Footer */}
-              <div style={{display:'flex',justifyContent:'space-between',padding:'6px 10px',borderTop:`1px solid ${C.border}`,background:'rgba(255,255,255,.02)'}}>
-                {isDone&&det&&<span style={{fontSize:10,color:C.green,fontWeight:700}}>✅ Výsledek k dispozici</span>}
-                {isDone&&!det&&<span style={{fontSize:10,color:C.muted}}>Výsledek zatím nezadán</span>}
-                {!isDone&&!isLive&&<span style={{fontSize:10,color:C.muted}}>Nezačalo</span>}
-                {isLive&&<span style={{fontSize:10,color:C.green,fontWeight:700}}>🔴 Hraje se</span>}
-                {isAdmin&&isDone&&<button onClick={e=>{e.stopPropagation();startEdit(key,teamA,teamB);}} style={{background:'rgba(56,189,248,.1)',border:`1px solid rgba(56,189,248,.3)`,borderRadius:6,color:C.cyan,fontSize:9,fontWeight:700,padding:'3px 8px',cursor:'pointer',fontFamily:'inherit'}}>✏️ {det?'Upravit':'Zadat'}</button>}
-              </div>
-            </div>
-          );
-        })}
+      {/* ── Řazení ─────────────────────────────────── */}
+      <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>
+        {[['points','⭐ KB'],['goals','⚽ G'],['assists','🎯 A'],['rounds','🔄 Kola']].map(([k,l])=>(
+          <button key={k} onClick={()=>setSortBy(k)}
+            style={{padding:'5px 12px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(sortBy===k)}}>
+            {l}{sortBy===k?' ↓':''}
+          </button>
+        ))}
       </div>
 
-      {/* Admin edit modal */}
-      {editKey&&editData&&(
-        <div style={{position:'fixed',inset:0,zIndex:300,background:'rgba(0,0,0,.85)',overflowY:'auto'}} onClick={e=>{if(e.target===e.currentTarget)setEditKey(null);}}>
-          <div style={{background:C.bg2,margin:'16px 10px',borderRadius:16,padding:'14px',border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <div style={{fontWeight:900,fontSize:14}}>✏️ Zadat výsledek</div>
-              <button onClick={()=>setEditKey(null)} style={{background:'none',border:'none',color:C.muted,fontSize:22,cursor:'pointer'}}>✕</button>
-            </div>
-            {/* Score */}
-            <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:14}}>
-              <div style={{flex:1,textAlign:'center'}}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{COUNTRIES[editData.teamA]?.n}</div>
-                <input type="number" min="0" value={editData.h??''} onChange={e=>setEditData(d=>({...d,h:Number(e.target.value)}))} style={{...S.input,textAlign:'center',fontSize:28,fontWeight:900,height:52}}/>
+      {/* ── Tabulka ────────────────────────────────── */}
+      {playerList.length===0?(
+        <div style={{textAlign:'center',padding:50,color:C.muted}}>
+          <div style={{fontSize:40,marginBottom:8}}>📊</div>
+          <div style={{fontWeight:700,marginBottom:4}}>{selUser}</div>
+          <div style={{fontSize:12}}>{isAdmin?'Vyber kolo výše a klikni Vypočítat':'Čekáme na výpočet statistik'}</div>
+        </div>
+      ):(
+        <div>
+          {/* Summary */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:12}}>
+            {[['⭐',tot.kb,'KB',C.gold],['⚽',tot.g,'Góly','#4ade80'],['🎯',tot.a,'Asistence','#38bdf8'],['🥅',tot.so,'Shutouty','#a78bfa']].map(([ic,val,lbl,col])=>(
+              <div key={lbl} style={{...S.card,textAlign:'center',padding:'10px 6px',border:`1px solid ${col}22`}}>
+                <div style={{fontSize:16}}>{ic}</div>
+                <div style={{fontSize:22,fontWeight:900,color:col}}>{val}</div>
+                <div style={{fontSize:9,color:C.muted}}>{lbl}</div>
               </div>
-              <span style={{fontSize:22,color:C.muted,marginTop:20}}>–</span>
-              <div style={{flex:1,textAlign:'center'}}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{COUNTRIES[editData.teamB]?.n}</div>
-                <input type="number" min="0" value={editData.a??''} onChange={e=>setEditData(d=>({...d,a:Number(e.target.value)}))} style={{...S.input,textAlign:'center',fontSize:28,fontWeight:900,height:52}}/>
-              </div>
-            </div>
-            {/* Goals */}
-            <div style={{marginBottom:12}}>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-                <span style={S.lbl}>⚽ GÓLY</span>
-                <button onClick={addGoal} style={{background:C.blue,border:'none',borderRadius:8,color:'#fff',fontSize:11,fontWeight:800,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>+ gól</button>
-              </div>
-              {editData.goals.map((g,i)=>(
-                <div key={i} style={{display:'grid',gridTemplateColumns:'52px 44px 1fr 1fr 20px',gap:4,marginBottom:6,alignItems:'center'}}>
-                  <input value={g.min} onChange={e=>updGoal(i,'min',e.target.value)} placeholder="00:00" style={{...S.input,padding:'4px',fontSize:11,textAlign:'center'}}/>
-                  <select value={g.period} onChange={e=>updGoal(i,'period',Number(e.target.value))} style={{...S.input,padding:'4px',fontSize:10}}>
-                    <option value={1}>1. tř.</option><option value={2}>2. tř.</option><option value={3}>3. tř.</option><option value={4}>Prod.</option>
-                  </select>
-                  <input value={g.scorer} onChange={e=>updGoal(i,'scorer',e.target.value)} placeholder="Střelec" style={{...S.input,padding:'4px',fontSize:12}}/>
-                  <input value={g.a1} onChange={e=>updGoal(i,'a1',e.target.value)} placeholder="Asist 1, 2" style={{...S.input,padding:'4px',fontSize:11}}/>
-                  <button onClick={()=>setEditData(d=>({...d,goals:d.goals.filter((_,j)=>j!==i)}))} style={{background:'none',border:'none',color:C.red,cursor:'pointer',fontSize:15,padding:0}}>✕</button>
+            ))}
+          </div>
+          {/* Tabulka hráčů */}
+          <div style={{...S.card,padding:0,overflow:'hidden'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 26px 36px 30px 30px 36px 28px',padding:'8px 10px',background:'rgba(255,255,255,.05)',borderBottom:`1px solid ${C.border}`}}>
+              {[['HRÁČ',''],['P',''],['KOLA','rounds'],['G','goals'],['A','assists'],['KB','points'],['SO','']].map(([lbl,key])=>(
+                <div key={lbl} onClick={key?()=>setSortBy(key):undefined}
+                  style={{fontSize:9,fontWeight:700,textAlign:lbl==='HRÁČ'?'left':'center',cursor:key?'pointer':'default',letterSpacing:.5,
+                    color:sortBy===key?'#fff':lbl==='G'?'#4ade80':lbl==='A'?'#38bdf8':lbl==='KB'?C.gold:lbl==='SO'?'#a78bfa':C.muted,
+                    textDecoration:sortBy===key?'underline':'none'}}>
+                  {lbl}{sortBy===key?' ↓':''}
                 </div>
               ))}
             </div>
-            {/* Penalties */}
-            <div style={{marginBottom:14}}>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-                <span style={S.lbl}>🟡 TRESTY</span>
-                <button onClick={addPen} style={{background:'rgba(202,138,4,.2)',border:'1px solid rgba(202,138,4,.4)',borderRadius:8,color:'#fbbf24',fontSize:11,fontWeight:800,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>+ trest</button>
-              </div>
-              {editData.penalties.map((p,i)=>(
-                <div key={i} style={{display:'grid',gridTemplateColumns:'52px 44px 1fr 52px 20px',gap:4,marginBottom:6,alignItems:'center'}}>
-                  <input value={p.min} onChange={e=>updPen(i,'min',e.target.value)} placeholder="00:00" style={{...S.input,padding:'4px',fontSize:11,textAlign:'center'}}/>
-                  <select value={p.period} onChange={e=>updPen(i,'period',Number(e.target.value))} style={{...S.input,padding:'4px',fontSize:10}}>
-                    <option value={1}>1. tř.</option><option value={2}>2. tř.</option><option value={3}>3. tř.</option>
-                  </select>
-                  <input value={p.player} onChange={e=>updPen(i,'player',e.target.value)} placeholder="Hráč (TYM)" style={{...S.input,padding:'4px',fontSize:12}}/>
-                  <input value={p.type} onChange={e=>updPen(i,'type',e.target.value)} placeholder="typ" style={{...S.input,padding:'4px',fontSize:10}}/>
-                  <button onClick={()=>setEditData(d=>({...d,penalties:d.penalties.filter((_,j)=>j!==i)}))} style={{background:'none',border:'none',color:C.red,cursor:'pointer',fontSize:15,padding:0}}>✕</button>
+            {playerList.map((pl,i)=>(
+              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 26px 36px 30px 30px 36px 28px',padding:'8px 10px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.02)',alignItems:'center'}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,overflow:'hidden'}}>
+                  <Flag code={pl.country} size={20}/>
+                  <div style={{overflow:'hidden'}}>
+                    <div style={{fontWeight:700,fontSize:12,lineHeight:1.2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pl.name}</div>
+                    <div style={{fontSize:8,color:C.muted}}>{pl.country}</div>
+                  </div>
                 </div>
-              ))}
-            </div>
-            <button onClick={saveEdit} disabled={saving} style={{width:'100%',padding:'13px',border:'none',borderRadius:12,background:'linear-gradient(135deg,#059669,#10b981)',color:'#fff',fontWeight:900,fontSize:14,cursor:saving?'wait':'pointer',fontFamily:'inherit'}}>
-              {saving?'Ukládám…':'💾 Uložit výsledek'}
-            </button>
+                <div style={{textAlign:'center',fontSize:9,fontWeight:800,color:pl.pos==='B'?'#a78bfa':pl.pos==='O'?'#38bdf8':'#4ade80'}}>{pl.pos}</div>
+                <div style={{textAlign:'center',fontSize:12,fontWeight:700,color:C.gold}}>{pl.rounds}</div>
+                <div style={{textAlign:'center',fontSize:13,fontWeight:800,color:'#4ade80'}}>{pl.goals}</div>
+                <div style={{textAlign:'center',fontSize:13,fontWeight:800,color:'#38bdf8'}}>{pl.assists}</div>
+                <div style={{textAlign:'center',fontSize:14,fontWeight:900,color:pl.points>0?C.gold:C.muted}}>{pl.points}</div>
+                <div style={{textAlign:'center',fontSize:14}}>{pl.shutouts>0?'🥅':''}</div>
+              </div>
+            ))}
+            <div style={{padding:'6px 10px',fontSize:8,color:C.faint}}>KB = kanadské body · G = góly · A = asistence · SO = čistá konta (brankáři)</div>
           </div>
         </div>
       )}
     </div>
   );
 }
-
 function History({activity}){
   const icons={score:{ic:'📊',col:C.cyan},player:{ic:'👤',col:C.green},round:{ic:'🏒',col:C.orange},squad:{ic:'📸',col:C.purple},delete:{ic:'🗑',col:C.red},join:{ic:'🆕',col:C.gold},dispute:{ic:'⚠️',col:C.orange},resolve:{ic:'✅',col:C.green},squadbuild:{ic:'🏒',col:'#a78bfa'},publish:{ic:'🔓',col:'#7c3aed'}};
   const items=Object.values(activity).sort((a,b)=>b.time-a.time);
