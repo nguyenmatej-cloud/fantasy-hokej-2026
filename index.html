@@ -697,12 +697,13 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
   const IMPORTER='MatjNg';
   const isImporter=myName===IMPORTER;
   const [selUser,setSelUser]=useState(players[0]||'');
-  const [selRound,setSelRound]=useState('');
   const [sortBy,setSortBy]=useState('points');
   const [importing,setImporting]=useState(false);
   const [aiMsg,setAiMsg]=useState('');
-  const [apiKey,setApiKey]=useState(()=>localStorage.getItem('hk26_apikey')||'');
-  const [confirmEdit,setConfirmEdit]=useState(null); // round key being edited
+  const [aiStep,setAiStep]=useState(0);
+  const [apiKey,setApiKey]=useState(()=>localStorage.getItem('hk26_gemini_key')||'');
+  const [confirmEdit,setConfirmEdit]=useState(null);
+  const [selRound,setSelRound]=useState('');
   const fileRef=useRef();
 
   useEffect(()=>{if(players.length&&!selUser)setSelUser(players[0]);},[players]);
@@ -710,100 +711,144 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
   const userRoundData=userStats[fk(selUser)]||{};
   const importedRounds=Object.keys(userRoundData);
 
+  const dayList=useMemo(()=>{
+    const d={};MS.forEach(([t])=>{const dt=t.slice(0,10);d[dt]=true;});
+    return Object.keys(d).sort();
+  },[]);
+
+  function getRoundMatches(roundKey){
+    const num=parseInt(roundKey.replace(/\D/g,''))-1;
+    const day=num>=0&&num<dayList.length?dayList[num]:null;
+    if(!day)return{day:null,matches:[]};
+    return{day,matches:MS.filter(([t])=>t.startsWith(day))};
+  }
+
+  async function gemini(prompt,imgBase64,useSearch){
+    const parts=[];
+    if(imgBase64)parts.push({inline_data:{mime_type:'image/jpeg',data:imgBase64}});
+    parts.push({text:prompt});
+    const body={contents:[{parts}]};
+    if(useSearch)body.tools=[{google_search:{}}];
+    const r=await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+apiKey.trim(),
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}
+    );
+    if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'Gemini error '+r.status);}
+    const d=await r.json();
+    return(d.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
+  }
+
   async function doImport(roundKey){
     const file=fileRef.current?.files?.[0];
-    if(!file){fileRef.current?.click();return;}
-    if(!apiKey.trim()){setAiMsg('Nejdřív zadej API klíč!');return;}
-    setImporting(true);
+    if(!file)return;
+    if(!apiKey.trim()){setAiMsg('❌ Zadej Google Gemini API klíč!');return;}
+    setImporting(true);setAiStep(0);
     try{
       const compressed=await compressImage(file);
       const base64=compressed.split(',')[1];
       const roundName=rounds.find(r=>fk(r)===roundKey)||roundKey;
+      const {day,matches}=getRoundMatches(roundKey);
 
-      // KROK 1: Rozpoznej hráče z obrázku
-      setAiMsg('👁️ Krok 1/3 — čtu hráče z obrázku…');
-      const step1=await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':apiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({
-          model:'claude-opus-4-5',max_tokens:1000,
-          messages:[{role:'user',content:[
-            {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
-            {type:'text',text:'Z tohoto screenshotu ze Tipsport Fantasy hokej vypiš POUZE jména hráčů a jejich fantasy body. Vrať POUZE JSON pole bez markdown:\n[{"name":"Flek J.","pos":"U","country":"CZE","fantasy_pts":12}]\nPozice: B=brankar, O=obrance, U=utocnik. Country: FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA'}
-          ]}]
-        })
-      });
-      if(!step1.ok){const e=await step1.json();throw new Error(e.error?.message||'Krok 1 selhal');}
-      const d1=await step1.json();
-      const t1=d1.content.filter(c=>c.type==='text').map(c=>c.text).join('');
-      const m1=t1.match(/\[[\s\S]*\]/);
-      if(!m1)throw new Error('Krok 1: neni JSON — '+t1.slice(0,150));
-      const playersFound=JSON.parse(m1[0]);
-      if(!playersFound.length)throw new Error('Zadni hraci v obrazku');
-      const names=playersFound.map(p=>p.name).join(', ');
+      const matchLines=matches.map(([t,a,b])=>{
+        const h=new Date(t).getUTCHours()+2;
+        const mn=String(new Date(t).getUTCMinutes()).padStart(2,'0');
+        return `${COUNTRIES[a]?.n||a} vs ${COUNTRIES[b]?.n||b} (${h}:${mn} CEST, ${day})`;
+      }).join('\n');
+
+      // ── KROK 1: Přečti hráče z obrázku ──────────────────────────────
+      setAiStep(1);setAiMsg('👁️ Krok 1/4 — čtu hráče z obrázku…');
+      const t1=await gemini(
+        'Ze screenshotu Tipsport Fantasy hokej vypiš JSON pole hráčů.\n'+
+        'Pro každého hráče: name (příjmení+iniciála, př. "Flek J."), pos (B=brankář/O=obránce/U=útočník), '+
+        'country (IIHF kód: FIN,CZE,CAN,USA,SWE,GER,SUI,AUT,LAT,HUN,GBR,SVK,NOR,SLO,DEN,ITA), fantasy_pts (číslo).\n'+
+        'Vrať POUZE JSON, nic jiného:\n'+
+        '[{"name":"Korenar J.","pos":"B","country":"CZE","fantasy_pts":15},{"name":"Flek J.","pos":"U","country":"CZE","fantasy_pts":12}]',
+        base64,false
+      );
+      const playersFound=JSON.parse((t1.match(/\[[\s\S]*?\]/)||['[]'])[0]);
+      if(!playersFound.length)throw new Error('Krok 1: žádní hráči v obrázku');
       const countries=[...new Set(playersFound.map(p=>p.country).filter(Boolean))];
-      setAiMsg('✅ Krok 1 — nalezeni: '+names);
+      const goalies=playersFound.filter(p=>p.pos==='B').map(p=>p.name);
+      setAiMsg('✅ Krok 1 — nalezeni: '+playersFound.map(p=>p.name).join(', '));
 
-      // KROK 2: Fetchni statistiky ze Livesport
-      setAiMsg('🔍 Krok 2/3 — stahuji statistiky z Livesport/IIHF…');
-      const step2=await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':apiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({
-          model:'claude-opus-4-5',max_tokens:3000,
-          tools:[{type:'web_search_20250305',name:'web_search'}],
-          messages:[{role:'user',content:[{type:'text',text:'Potrebuji ziskat PRESNE statistiky (goly a asistence) techto hracu z jejich POSLEDNIHO zapasu na IIHF World Championship 2026:\n\nHraci: '+names+'\nZeme: '+countries.join(', ')+'\n\nPostupuj presne takto:\n1. Otevri https://www.livesport.cz/hokej/svet/ms-2026/vysledky/ a zjisti posledni zapasy pro zeme: '+countries.join(', ')+'\n2. Pro kazdy posledni zapas otevri detail a najdi kdo dal gol a kdo asistoval\n3. Vyhledej konkretne kazdeho hrace ze seznamu: '+names+'\n\nVrat POUZE JSON pole bez markdown:\n[{"name":"Flek J.","goals":0,"assists":1,"points":1}]\n\nPokud hrac nemel gol ani asistenci, dej 0. Nesmis vynadat — chci presna cisla.'}]}]
-        })
-      });
-      if(!step2.ok){const e=await step2.json();throw new Error(e.error?.message||'Krok 2 selhal');}
-      const d2=await step2.json();
-      const t2=d2.content.filter(c=>c.type==='text').map(c=>c.text).join('');
+      // ── KROK 2: Vyhledej kompletní box score zápasů ──────────────────
+      setAiStep(2);setAiMsg('🔍 Krok 2/4 — hledám box score zápasů na Livesport…');
+      const t2=await gemini(
+        'Potřebuji KOMPLETNÍ statistiky z těchto zápasů IIHF World Championship 2026:\n\n'+
+        matchLines+'\n\n'+
+        'Pro každý zápas kde hrají tyto země: '+countries.join(', ')+', zjisti:\n'+
+        '1. Kdo dal GÓLY (jméno, počet)\n'+
+        '2. Kdo měl ASISTENCE včetně brankářů (jméno, počet) — ano, brankáři mohou mít asistenci!\n'+
+        '3. Který BRANKÁŘ chytal celý zápas a dostal NULA GÓLů (čisté konto / shutout)\n\n'+
+        'Hledej na: livesport.cz nebo flashscore.com → detail zápasu → střelci a asistenti\n'+
+        'Příklad hledání: "'+( matches[0]?((COUNTRIES[matches[0][1]]?.n||'Finland')+' '+(COUNTRIES[matches[0][2]]?.n||'Germany')):'Finland Germany')+' IIHF 2026 '+day+' goals assists box score"\n\n'+
+        'Vrať POUZE JSON pole (všichni hráči kteří skórovali/asistovali + brankáři se shutoutem):\n'+
+        '[{"name":"Flek J.","country":"CZE","goals":0,"assists":1,"shutout":false},'+
+        '{"name":"Korenar J.","country":"CZE","goals":0,"assists":0,"shutout":true}]\n\n'+
+        'Pole shutout: true pokud brankář odchytal celý zápas a nepustil žádný gól, jinak false.',
+        null,true
+      );
       const m2=t2.match(/\[[\s\S]*\]/);
-      if(!m2)throw new Error('Krok 2: neni JSON — '+t2.slice(0,200));
-      const statsData=JSON.parse(m2[0]);
+      const boxScore=m2?JSON.parse(m2[0]):[];
+      setAiMsg('✅ Krok 2 — box score: '+boxScore.length+' záznamů');
 
-      // KROK 3: Spoj data
-      setAiMsg('📊 Krok 3/3 — spojuji data…');
-      const statsMap={};
-      statsData.forEach(s=>{
-        const key=(s.name||'').toLowerCase().replace(/[\s.]/g,'');
-        statsMap[key]={goals:Number(s.goals)||0,assists:Number(s.assists)||0,points:Number(s.points)||((Number(s.goals)||0)+(Number(s.assists)||0))};
+      // ── KROK 3: Spáruj hráče se statistikami ─────────────────────────
+      setAiStep(3);setAiMsg('🔗 Krok 3/4 — páruji hráče se statistikami…');
+      const norm=s=>(s||'').toLowerCase().replace(/[\s.\-']/g,'');
+      const boxMap={};
+      boxScore.forEach(s=>{
+        boxMap[norm(s.name)]={goals:Number(s.goals)||0,assists:Number(s.assists)||0,shutout:!!s.shutout};
       });
+
       const finalPlayers=playersFound.map(pl=>{
-        const key=(pl.name||'').toLowerCase().replace(/[\s.]/g,'');
-        // Try exact match then partial match
-        let st=statsMap[key];
+        const k=norm(pl.name);
+        let st=boxMap[k];
         if(!st){
-          const partKey=key.slice(0,5);
-          const found=Object.keys(statsMap).find(k=>k.includes(partKey));
-          st=found?statsMap[found]:{goals:0,assists:0,points:0};
+          // Fuzzy: zkus prvních 5 znaků
+          const fnd=Object.keys(boxMap).find(bk=>bk.length>=4&&(bk.startsWith(k.slice(0,5))||k.startsWith(bk.slice(0,5))));
+          if(fnd)st=boxMap[fnd];
         }
-        return{name:pl.name,country:pl.country,pos:pl.pos==='U'?'U':pl.pos,fantasy_pts:pl.fantasy_pts||0,goals:st.goals,assists:st.assists,points:st.points};
+        st=st||{goals:0,assists:0,shutout:false};
+        const isGoalie=pl.pos==='B';
+        return{
+          name:pl.name,country:pl.country,pos:pl.pos,
+          fantasy_pts:pl.fantasy_pts||0,
+          goals:st.goals,assists:st.assists,
+          points:st.goals+st.assists,
+          shutout:isGoalie?st.shutout:false
+        };
       });
 
+      const scored=finalPlayers.filter(p=>p.points>0||p.shutout).map(p=>p.name+(p.shutout?' 🥅':'')).join(', ');
+      setAiMsg('✅ Krok 3 — bodující: '+(scored||'nikdo'));
+
+      // ── KROK 4: Ulož do Firebase ──────────────────────────────────────
+      setAiStep(4);setAiMsg('💾 Krok 4/4 — ukládám…');
       await onUserStats(fk(selUser),roundKey,{players:finalPlayers,updatedAt:Date.now(),updatedBy:myName});
-      setAiMsg('✅ Hotovo! '+finalPlayers.length+' hracu ulozeno pro '+selUser+' · kolo '+roundName);
+      setAiMsg('✅ Hotovo! '+finalPlayers.length+' hráčů · kolo '+roundName+(scored?'\nBodyli: '+scored:''));
       setConfirmEdit(null);setSelRound('');
     }catch(ex){setAiMsg('❌ '+ex.message);}
-    finally{setImporting(false);if(fileRef.current)fileRef.current.value='';}
+    finally{setImporting(false);setAiStep(0);if(fileRef.current)fileRef.current.value='';}
   }
+
   function triggerImport(roundKey){
     setSelRound(roundKey);setAiMsg('');
     if(importedRounds.includes(roundKey)){setConfirmEdit(roundKey);}
     else{setConfirmEdit(null);setTimeout(()=>fileRef.current?.click(),50);}
   }
 
-  // Aggregate stats across all imported rounds for selected user
+  // Agregace statistik přes všechna kola
   const playerMap={};
-  Object.entries(userRoundData).forEach(([rk,rdata])=>{
-    (rdata.players||[]).forEach(pl=>{
+  Object.entries(userRoundData).forEach(([,rd])=>{
+    (rd.players||[]).forEach(pl=>{
       const key=pl.country+'_'+pl.name;
-      if(!playerMap[key])playerMap[key]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0,fantasy_pts:0};
+      if(!playerMap[key])playerMap[key]={name:pl.name,country:pl.country,pos:pl.pos,rounds:0,goals:0,assists:0,points:0,fantasy_pts:0,shutouts:0};
       playerMap[key].rounds++;
       playerMap[key].goals+=(pl.goals||0);
       playerMap[key].assists+=(pl.assists||0);
       playerMap[key].points+=(pl.points||0);
       playerMap[key].fantasy_pts+=(pl.fantasy_pts||0);
+      if(pl.shutout)playerMap[key].shutouts++;
     });
   });
   let playerList=Object.values(playerMap);
@@ -812,70 +857,90 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
   else if(sortBy==='assists')playerList.sort((a,b)=>b.assists-a.assists);
   else if(sortBy==='rounds')playerList.sort((a,b)=>b.rounds-a.rounds);
   else if(sortBy==='fantasy')playerList.sort((a,b)=>b.fantasy_pts-a.fantasy_pts);
-  const totals=playerList.reduce((s,p)=>({goals:s.goals+p.goals,assists:s.assists+p.assists,points:s.points+p.points,fantasy_pts:s.fantasy_pts+(p.fantasy_pts||0)}),{goals:0,assists:0,points:0,fantasy_pts:0});
+  const totals=playerList.reduce((s,p)=>({goals:s.goals+p.goals,assists:s.assists+p.assists,points:s.points+p.points,fantasy_pts:s.fantasy_pts+(p.fantasy_pts||0),shutouts:s.shutouts+(p.shutouts||0)}),{goals:0,assists:0,points:0,fantasy_pts:0,shutouts:0});
+
+  const STEP_LABELS=['','👁️ Čtu obrázek','🔍 Hledám box score','🔗 Páruji hráče','💾 Ukládám'];
 
   return(
     <div>
-      {/* IMPORTER section */}
+      {/* IMPORTER */}
       {isImporter&&(
-        <div style={{...S.card,marginBottom:12,border:'1px solid rgba(139,92,246,.3)',background:'rgba(139,92,246,.05)'}}>
-          <span style={{...S.lbl,color:'#a78bfa'}}>🤖 AI IMPORT — POUZE MatjNg</span>
+        <div style={{...S.card,marginBottom:12,border:'1px solid rgba(74,222,128,.25)',background:'rgba(74,222,128,.04)'}}>
+          <span style={{...S.lbl,color:C.green}}>🤖 AI IMPORT — GEMINI (ZDARMA)</span>
+
           {/* API key */}
           <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Anthropic API klíč</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
+              Google Gemini API klíč <span style={{color:C.green,fontSize:9}}>(zdarma · aistudio.google.com → Get API key)</span>
+            </div>
             <div style={{display:'flex',gap:6,alignItems:'center'}}>
-              <input type="password" value={apiKey} onChange={e=>{setApiKey(e.target.value);localStorage.setItem('hk26_apikey',e.target.value);}} placeholder="sk-ant-..." style={{...S.input,flex:1,fontSize:12}}/>
-              <span style={{fontSize:13,color:apiKey?C.green:C.faint}}>{apiKey?'✓':'✗'}</span>
+              <input type="password" value={apiKey} onChange={e=>{setApiKey(e.target.value);localStorage.setItem('hk26_gemini_key',e.target.value);}} placeholder="AIza..." style={{...S.input,flex:1,fontSize:12}}/>
+              <span style={{fontSize:14,color:apiKey?C.green:C.faint}}>{apiKey?'✓':'✗'}</span>
             </div>
           </div>
-          {/* User to import for */}
+
+          {/* User selector */}
           <div style={{marginBottom:10}}>
             <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Importovat pro:</div>
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              {players.map(p=><button key={p} onClick={()=>{setSelUser(p);setSelRound('');setAiMsg('');setConfirmEdit(null);}} style={{padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(selUser===p&&isImporter,'#7c3aed')}}>{p}</button>)}
+              {players.map(p=><button key={p} onClick={()=>setSelUser(p)} style={{padding:'6px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(selUser===p,'#059669')}}>{p}</button>)}
             </div>
           </div>
-          {/* Round selector for import */}
+
+          {/* Round selector */}
           {rounds.length>0&&(
             <div style={{marginBottom:10}}>
-              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Kolo (klepni pro import):</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Kolo:</div>
               <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                 {rounds.map(r=>{
-                  const rk=fk(r);
-                  const done=importedRounds.includes(rk);
-                  const rd=userRoundData[rk];
+                  const rk_=fk(r);const done_=importedRounds.includes(rk_);const rd=userRoundData[rk_];
                   return(
-                    <button key={r} onClick={()=>triggerImport(rk)} style={{
-                      display:'flex',flexDirection:'column',alignItems:'center',padding:'8px 14px',borderRadius:12,border:'none',cursor:'pointer',fontFamily:'inherit',
-                      background:done?'rgba(74,222,128,.15)':'rgba(255,255,255,.06)',
-                      border:done?'1px solid rgba(74,222,128,.35)':`1px dashed ${C.faint}`,
-                    }}>
-                      <span style={{fontSize:12,fontWeight:800,color:done?C.green:C.muted}}>{done?'✅':''} {r}</span>
-                      {done&&<span style={{fontSize:8,color:C.muted,marginTop:1}}>{rd?.players?.length||0} hráčů</span>}
-                      {done&&<span style={{fontSize:8,color:'#7c3aed',marginTop:1}}>✏️ přepsat</span>}
+                    <button key={r} onClick={()=>triggerImport(rk_)} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'8px 14px',border:'none',borderRadius:12,cursor:'pointer',fontFamily:'inherit',
+                      background:done_?'rgba(74,222,128,.15)':'rgba(255,255,255,.06)',outline:done_?'1px solid rgba(74,222,128,.4)':`1px dashed ${C.faint}`}}>
+                      <span style={{fontSize:12,fontWeight:800,color:done_?C.green:C.muted}}>{done_?'✅ ':''}{r}</span>
+                      {done_&&<span style={{fontSize:8,color:C.muted}}>{rd?.players?.length||0} hráčů · ✏️ přepsat</span>}
                     </button>
                   );
                 })}
               </div>
             </div>
           )}
+
           {/* Confirm overwrite */}
           {confirmEdit&&(
             <div style={{background:'rgba(251,146,60,.1)',border:'1px solid rgba(251,146,60,.35)',borderRadius:10,padding:'10px 12px',marginBottom:10}}>
-              <div style={{fontSize:12,fontWeight:700,color:C.orange,marginBottom:8}}>
-                ⚠️ Kolo „{rounds.find(r=>fk(r)===confirmEdit)||confirmEdit}" už má data ({userRoundData[confirmEdit]?.players?.length||0} hráčů). Přepsat?
-              </div>
+              <div style={{fontSize:12,fontWeight:700,color:C.orange,marginBottom:8}}>⚠️ Kolo „{rounds.find(r=>fk(r)===confirmEdit)||confirmEdit}" již má data. Přepsat?</div>
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>{setConfirmEdit(null);setTimeout(()=>fileRef.current?.click(),50);}} style={{flex:1,padding:'8px 0',background:'linear-gradient(135deg,#92400e,#b45309)',border:'none',borderRadius:8,color:'#fff',fontWeight:800,cursor:'pointer',fontFamily:'inherit',fontSize:13}}>✏️ Ano, přepsat</button>
-                <button onClick={()=>{setConfirmEdit(null);setSelRound('');}} style={{flex:1,padding:'8px 0',background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontWeight:700,cursor:'pointer',fontFamily:'inherit',fontSize:13}}>Zrušit</button>
+                <button onClick={()=>{setConfirmEdit(null);setTimeout(()=>fileRef.current?.click(),50);}} style={{flex:1,padding:'8px',background:'linear-gradient(135deg,#92400e,#b45309)',border:'none',borderRadius:8,color:'#fff',fontWeight:800,cursor:'pointer',fontFamily:'inherit'}}>✏️ Přepsat</button>
+                <button onClick={()=>{setConfirmEdit(null);setSelRound('');}} style={{flex:1,padding:'8px',background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,cursor:'pointer',fontFamily:'inherit'}}>Zrušit</button>
               </div>
             </div>
           )}
-          {/* Hidden file input */}
+
+          {/* Progress steps */}
+          {importing&&(
+            <div style={{marginBottom:8}}>
+              <div style={{display:'flex',gap:4,marginBottom:8}}>
+                {STEP_LABELS.slice(1).map((lbl,i)=>(
+                  <div key={i} style={{flex:1,padding:'5px 4px',borderRadius:8,textAlign:'center',fontSize:9,fontWeight:700,
+                    background:aiStep>i+1?'rgba(74,222,128,.2)':aiStep===i+1?'rgba(56,189,248,.2)':'rgba(255,255,255,.04)',
+                    color:aiStep>i+1?C.green:aiStep===i+1?C.cyan:C.faint,
+                    border:aiStep===i+1?`1px solid ${C.cyan}`:'1px solid transparent'}}>
+                    {aiStep>i+1?'✓ ':''}{lbl}
+                  </div>
+                ))}
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}><Spinner/><div style={{fontSize:12,color:C.cyan,fontWeight:700}}>{aiMsg}</div></div>
+            </div>
+          )}
+
           <input ref={fileRef} type="file" accept="image/*" onChange={e=>{if(e.target.files?.[0]&&selRound)doImport(selRound);}} style={{display:'none'}}/>
-          {/* Status */}
-          {importing&&<div style={{display:'flex',alignItems:'center',gap:10,padding:'10px',background:'rgba(139,92,246,.1)',borderRadius:10}}><Spinner/><div style={{fontSize:12,color:'#a78bfa',fontWeight:700}}>{aiMsg}</div></div>}
-          {aiMsg&&!importing&&<div style={{marginTop:6,padding:'8px 10px',borderRadius:8,background:'rgba(255,255,255,.04)',fontSize:12,color:aiMsg.startsWith('✅')?C.green:aiMsg.startsWith('❌')?C.red:'#a78bfa'}}>{aiMsg}</div>}
+          {!importing&&<label style={{display:'block',border:`2px dashed rgba(74,222,128,.3)`,borderRadius:10,padding:'12px',textAlign:'center',cursor:'pointer',marginTop:4}}>
+            <input type="file" accept="image/*" onChange={e=>{if(e.target.files?.[0]&&selRound)doImport(selRound);else if(!selRound)setAiMsg('❌ Nejdřív vyber kolo!');}} style={{display:'none'}}/>
+            <div style={{fontSize:24,marginBottom:4}}>📸</div>
+            <div style={{fontSize:12,color:C.green,fontWeight:700}}>Nahrát screenshot pro: {selUser} · kolo {rounds.find(r=>fk(r)===selRound)||'— vyber kolo'}</div>
+          </label>}
+          {aiMsg&&!importing&&<div style={{marginTop:8,padding:'8px 10px',borderRadius:8,background:'rgba(255,255,255,.04)',fontSize:11,color:aiMsg.startsWith('✅')?C.green:aiMsg.startsWith('❌')?C.red:C.cyan,whiteSpace:'pre-line'}}>{aiMsg}</div>}
         </div>
       )}
 
@@ -883,92 +948,83 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
       <div style={{marginBottom:12}}>
         <span style={S.lbl}>STATISTIKY HRÁČE</span>
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-          {players.map(p=>{
-            const rCount=Object.keys(userStats[fk(p)]||{}).length;
-            return(
-              <button key={p} onClick={()=>setSelUser(p)} style={{display:'flex',alignItems:'center',gap:5,padding:'7px 14px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selUser===p)}}>
-                {rCount>0?<span style={{background:C.green,color:'#000',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:900,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{rCount}</span>:'⏳'} {p}
-              </button>
-            );
-          })}
+          {players.map(p=>{const cnt=Object.keys(userStats[fk(p)]||{}).length;return(
+            <button key={p} onClick={()=>setSelUser(p)} style={{display:'flex',alignItems:'center',gap:5,padding:'7px 14px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,...S.btn(selUser===p)}}>
+              {cnt>0?<span style={{background:C.green,color:'#000',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:900,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{cnt}</span>:'⏳'} {p}
+            </button>
+          );})}
         </div>
       </div>
 
-      {/* Imported rounds status for selected user */}
+      {/* Imported rounds overview */}
       {rounds.length>0&&(
         <div style={{...S.card,marginBottom:12,padding:'10px 12px'}}>
           <span style={S.lbl}>IMPORTOVANÁ KOLA — {selUser.toUpperCase()}</span>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            {rounds.map(r=>{
-              const rk=fk(r);const done=userRoundData[rk];
-              return(
-                <div key={r} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'6px 12px',borderRadius:10,
-                  background:done?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)',
-                  border:done?'1px solid rgba(74,222,128,.3)':`1px dashed ${C.faint}`}}>
-                  <span style={{fontSize:11,fontWeight:800,color:done?C.green:C.faint}}>{done?'✅':''} {r}</span>
-                  {done&&<span style={{fontSize:8,color:C.muted,marginTop:1}}>{done.players?.length||0} hráčů</span>}
-                  {done&&<span style={{fontSize:8,color:C.muted}}>{new Date(done.updatedAt).toLocaleString('cs',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})}</span>}
-                </div>
-              );
-            })}
+            {rounds.map(r=>{const rk_=fk(r);const done_=userRoundData[rk_];return(
+              <div key={r} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'6px 12px',borderRadius:10,background:done_?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)',border:done_?'1px solid rgba(74,222,128,.3)':`1px dashed ${C.faint}`}}>
+                <span style={{fontSize:11,fontWeight:800,color:done_?C.green:C.faint}}>{done_?'✅ ':''}{r}</span>
+                {done_&&<span style={{fontSize:8,color:C.muted}}>{done_.players?.length||0} hráčů</span>}
+              </div>
+            );})}
           </div>
         </div>
       )}
 
       {/* Sort */}
       <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>
-        {[['points','⭐ KB'],['fantasy','🎮 FB'],['goals','⚽ Góly'],['assists','🎯 Asistence'],['rounds','🔄 Kola']].map(([k,l])=>(
+        {[['points','⭐ KB'],['fantasy','🎮 FB'],['goals','⚽ G'],['assists','🎯 A'],['rounds','🔄 Kola']].map(([k,l])=>(
           <button key={k} onClick={()=>setSortBy(k)} style={{padding:'5px 12px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(sortBy===k)}}>
             {l}{sortBy===k?' ↓':''}
           </button>
         ))}
       </div>
 
-      {/* Stats */}
+      {/* Stats table */}
       {playerList.length===0?(
         <div style={{textAlign:'center',padding:50,color:C.muted}}>
           <div style={{fontSize:40,marginBottom:8}}>📊</div>
-          <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>{selUser}</div>
-          <div style={{fontSize:12}}>Žádná data · {isImporter?'Importuj screenshot výše':'MatjNg ještě neimportoval statistiky'}</div>
+          <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{selUser}</div>
+          <div style={{fontSize:12}}>{isImporter?'Nahraj screenshot výše':'Čekáme na import od MatjNg'}</div>
         </div>
       ):(
         <div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:12}}>
-            {[['⭐',totals.points,'KB',C.gold],['🎮',totals.fantasy_pts,'FB','#818cf8'],['⚽',totals.goals,'Góly','#4ade80'],['🎯',totals.assists,'Asistence','#38bdf8']].map(([ic,val,lbl,col])=>(
-              <div key={lbl} style={{...S.card,textAlign:'center',padding:'10px 6px',border:`1px solid ${col}33`}}>
-                <div style={{fontSize:16}}>{ic}</div>
-                <div style={{fontSize:22,fontWeight:900,color:col}}>{val}</div>
-                <div style={{fontSize:9,color:C.muted}}>{lbl}</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6,marginBottom:12}}>
+            {[['⭐',totals.points,'KB',C.gold],['🎮',totals.fantasy_pts,'FB','#818cf8'],['⚽',totals.goals,'Góly','#4ade80'],['🎯',totals.assists,'Asistence','#38bdf8'],['🥅',totals.shutouts,'Shutouty','#a78bfa']].map(([ic,val,lbl,col])=>(
+              <div key={lbl} style={{...S.card,textAlign:'center',padding:'8px 4px',border:`1px solid ${col}33`}}>
+                <div style={{fontSize:14}}>{ic}</div>
+                <div style={{fontSize:20,fontWeight:900,color:col}}>{val}</div>
+                <div style={{fontSize:8,color:C.muted}}>{lbl}</div>
               </div>
             ))}
           </div>
           <div style={{...S.card,padding:0,overflow:'hidden'}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 30px 30px 38px 42px',padding:'8px 10px',background:'rgba(255,255,255,.05)',borderBottom:`1px solid ${C.border}`}}>
-              {[['HRÁČ',''],['P',''],['KOLA','rounds'],['G','goals'],['A','assists'],['KB','points'],['FB','fantasy']].map(([lbl,key])=>(
-                <div key={lbl} onClick={key?()=>setSortBy(key):undefined} style={{fontSize:9,fontWeight:700,
-                  color:sortBy===key?'#fff':key==='rounds'?C.gold:key==='goals'?'#4ade80':key==='assists'?'#38bdf8':key==='points'?C.gold:key==='fantasy'?'#818cf8':C.muted,
-                  textAlign:key?'center':'left',cursor:key?'pointer':'default',letterSpacing:.5,textDecoration:sortBy===key?'underline':'none'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 26px 34px 28px 28px 34px 38px 28px',padding:'7px 8px',background:'rgba(255,255,255,.05)',borderBottom:`1px solid ${C.border}`}}>
+              {[['HRÁČ',''],['P',''],['KOLA','rounds'],['G','goals'],['A','assists'],['KB','points'],['FB','fantasy'],['SO','']].map(([lbl,key])=>(
+                <div key={lbl} onClick={key?()=>setSortBy(key):undefined}
+                  style={{fontSize:8,fontWeight:700,textAlign:lbl==='HRÁČ'?'left':'center',cursor:key?'pointer':'default',letterSpacing:.5,
+                    textDecoration:sortBy===key?'underline':'none',
+                    color:sortBy===key?'#fff':lbl==='G'?'#4ade80':lbl==='A'?'#38bdf8':lbl==='KB'?C.gold:lbl==='FB'?'#818cf8':lbl==='SO'?'#a78bfa':C.muted}}>
                   {lbl}{sortBy===key?' ↓':''}
                 </div>
               ))}
             </div>
             {playerList.map((pl,i)=>(
-              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 28px 38px 30px 30px 38px 42px',padding:'8px 10px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.015)',alignItems:'center'}}>
-                <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:13}}>{COUNTRIES[pl.country]?.f||''} {pl.country}</span>
-                  <div><div style={{fontWeight:700,fontSize:13,lineHeight:1.2}}>{pl.name}</div><div style={{fontSize:9,color:C.muted}}>{COUNTRIES[pl.country]?.n||pl.country}</div></div>
+              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 26px 34px 28px 28px 34px 38px 28px',padding:'7px 8px',borderBottom:`1px solid ${C.border}`,background:i%2===0?'transparent':'rgba(255,255,255,.015)',alignItems:'center'}}>
+                <div style={{display:'flex',alignItems:'center',gap:5}}>
+                  <span style={{fontSize:11,whiteSpace:'nowrap',flexShrink:0}}>{COUNTRIES[pl.country]?.f||''} {pl.country}</span>
+                  <div style={{fontWeight:700,fontSize:12,lineHeight:1.2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pl.name}</div>
                 </div>
-                <div style={{textAlign:'center',fontSize:10,color:C.muted,fontWeight:700}}>{pl.pos||'—'}</div>
-                <div style={{textAlign:'center',fontSize:13,fontWeight:700,color:C.gold}}>{pl.rounds}</div>
-                <div style={{textAlign:'center',fontSize:14,fontWeight:800,color:'#4ade80'}}>{pl.goals}</div>
-                <div style={{textAlign:'center',fontSize:14,fontWeight:800,color:'#38bdf8'}}>{pl.assists}</div>
-                <div style={{textAlign:'center',fontSize:15,fontWeight:900,color:pl.points>0?C.gold:C.muted}}>{pl.points}</div>
-                <div style={{textAlign:'center',fontSize:13,fontWeight:700,color:'#818cf8'}}>{pl.fantasy_pts||0}</div>
+                <div style={{textAlign:'center',fontSize:9,color:pl.pos==='B'?'#a78bfa':pl.pos==='O'?'#38bdf8':'#4ade80',fontWeight:800}}>{pl.pos}</div>
+                <div style={{textAlign:'center',fontSize:12,fontWeight:700,color:C.gold}}>{pl.rounds}</div>
+                <div style={{textAlign:'center',fontSize:13,fontWeight:800,color:'#4ade80'}}>{pl.goals}</div>
+                <div style={{textAlign:'center',fontSize:13,fontWeight:800,color:'#38bdf8'}}>{pl.assists}</div>
+                <div style={{textAlign:'center',fontSize:14,fontWeight:900,color:pl.points>0?C.gold:C.muted}}>{pl.points}</div>
+                <div style={{textAlign:'center',fontSize:12,fontWeight:700,color:'#818cf8'}}>{pl.fantasy_pts||0}</div>
+                <div style={{textAlign:'center',fontSize:14}}>{pl.shutouts>0?'🥅'+pl.shutouts:''}</div>
               </div>
             ))}
-            <div style={{padding:'7px 10px',display:'flex',gap:10,fontSize:9,color:C.muted,flexWrap:'wrap'}}>
-              <span>P=pozice</span><span style={{color:C.gold}}>KOLA=počet kol v sestavě</span><span style={{color:'#4ade80'}}>G=góly</span><span style={{color:'#38bdf8'}}>A=asistence</span><span style={{color:C.gold}}>KB=kanadské body</span><span style={{color:'#818cf8'}}>FB=fantasy body</span>
-            </div>
+            <div style={{padding:'6px 8px',fontSize:8,color:C.muted}}>KB=kanadské body · FB=fantasy body · G=góly · A=asistence · SO=shutouty (čistá konta)</div>
           </div>
         </div>
       )}
