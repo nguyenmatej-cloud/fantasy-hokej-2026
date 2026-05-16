@@ -1482,40 +1482,24 @@ function App(){
 
 
 
-  // ── Auto-fetch výsledků (TheSportsDB přes CORS proxy) ──
+  // ── Auto-fetch výsledků (Vercel /api/scores) ──────────
   const [autoMsg,setAutoMsg]=useState('');
   useEffect(()=>{
     if(!ready||!db)return;
-    const TMAP={'Finland':'FIN','Germany':'GER','Canada':'CAN','Sweden':'SWE',
-      'United States':'USA','Switzerland':'SUI','Czech Republic':'CZE','Czechia':'CZE',
-      'Denmark':'DEN','Austria':'AUT','Great Britain':'GBR','Latvia':'LAT',
-      'Hungary':'HUN','Slovakia':'SVK','Norway':'NOR','Slovenia':'SLO','Italy':'ITA'};
-    function tm(n){
-      if(!n)return null;
-      if(TMAP[n])return TMAP[n];
-      for(const k of Object.keys(TMAP))if(n.toLowerCase().includes(k.toLowerCase()))return TMAP[k];
-      return n.slice(0,3).toUpperCase();
-    }
     async function fetchToday(){
       try{
         const day=new Date().toISOString().slice(0,10);
-        const url='https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d='+day+'&s=Ice_Hockey';
-        const r=await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(url));
+        const r=await fetch('/api/scores?day='+day);
         if(!r.ok)return;
-        const w=await r.json();
-        const data=JSON.parse(w.contents||'{}');
+        const data=await r.json();
         let n=0;
-        (data.events||[])
-          .filter(e=>{const l=(e.strLeague||'').toLowerCase();return l.includes('iihf')||l.includes('world championship');})
-          .forEach(e=>{
-            const tA=tm(e.strHomeTeam),tB=tm(e.strAwayTeam);
-            if(tA&&tB&&e.intHomeScore!=null&&e.strStatus==='Match Finished'){
-              db.ref('match_results/'+day+'_'+tA+'_'+tB).set({h:+e.intHomeScore,a:+e.intAwayScore});
-              n++;
-            }
-          });
-        if(n>0)setAutoMsg('✅ '+n);
-        setTimeout(()=>setAutoMsg(''),5000);
+        (data.events||[]).forEach(e=>{
+          if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null&&e.status==='done'){
+            db.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});
+            n++;
+          }
+        });
+        if(n>0){setAutoMsg('✅ '+n+' výsledků');setTimeout(()=>setAutoMsg(''),5000);}
       }catch(_){}
     }
     fetchToday();
