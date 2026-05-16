@@ -1116,6 +1116,7 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
   const defaultDay=days.filter(d=>d<=todayISO).slice(-1)[0]||days[0]||todayISO;
   const [selDay,setSelDay]=useState(defaultDay);
   const [selMatch,setSelMatch]=useState(null);
+  const [fetchMsg,setFetchMsg]=useState('');
   const [editKey,setEditKey]=useState(null);
   const [editData,setEditData]=useState(null);
   const [saving,setSaving]=useState(false);
@@ -1152,7 +1153,27 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
   return(
     <div>
       <div style={{marginBottom:12}}>
-        <span style={S.lbl}>HRACÍ DEN</span>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+          <span style={S.lbl}>HRACÍ DEN</span>
+          <button onClick={async()=>{
+            setFetchMsg('⏳ Načítám...');
+            try{
+              const r=await fetch('/api/scores?day='+selDay);
+              const data=await r.json();
+              let n=0;
+              (data.events||[]).forEach(e=>{
+                if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null){
+                  db?.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});n++;
+                }
+              });
+              setFetchMsg(n>0?'✅ '+n+' výsledků':'⚠️ Žádná data');
+            }catch(err){setFetchMsg('❌ '+err.message);}
+            setTimeout(()=>setFetchMsg(''),4000);
+          }} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 12px',border:`1px solid ${C.border}`,borderRadius:20,background:'rgba(255,255,255,.05)',color:C.cyan,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700}}>
+            🔄 Aktualizovat
+          </button>
+        </div>
+        {fetchMsg&&<div style={{fontSize:11,color:fetchMsg.startsWith('✅')?C.green:fetchMsg.startsWith('❌')?C.red:C.muted,marginBottom:6,fontWeight:700}}>{fetchMsg}</div>}
         <div style={{display:'flex',gap:5,overflowX:'auto',paddingBottom:4}}>
           {days.map(d=>{
             const dt=new Date(d+'T12:00:00Z');
