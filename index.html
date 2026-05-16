@@ -92,13 +92,15 @@ function Flag({code,size,style}){
     style={{borderRadius:3,objectFit:'cover',border:'1px solid rgba(255,255,255,.15)',display:'block',...(style||{})}}
     onError={e=>{e.target.style.display='none';}}/>;
 }
-const GAME_DURATION_MS=2.5*60*60*1000; // ~2.5 hours
+const GAME_DURATION_MS=4*60*60*1000; // 4 hours max
 function matchStatus(utcISO,key,matchResults,matchDetails){
-  // If result exists → definitely done
+  // Result in Firebase or SEED_DETAILS → done
   if(key&&((matchResults&&matchResults[key])||(matchDetails&&matchDetails[key])||SEED_DETAILS[key]))return'done';
   const now=Date.now();const t=new Date(utcISO).getTime();
   if(now<t)return'upcoming';
+  // Only show live if started less than 4 hours ago
   if(now<t+GAME_DURATION_MS)return'live';
+  // After 4 hours without result → show as done (no score)
   return'done';
 }
 // Check if match started FOR THIS SPECIFIC DAY (round) only
