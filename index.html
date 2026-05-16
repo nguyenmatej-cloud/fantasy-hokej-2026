@@ -1494,7 +1494,7 @@ function App(){
         const data=await r.json();
         let n=0;
         (data.events||[]).forEach(e=>{
-          if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null&&e.status==='done'){
+          if(e.teamA&&e.teamB&&e.scoreH!=null&&e.scoreA!=null){
             db.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});
             n++;
           }
