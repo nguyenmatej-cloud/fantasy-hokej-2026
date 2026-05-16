@@ -1480,28 +1480,38 @@ function App(){
   if(!myName)return<Setup existing={players} onJoin={handleJoin}/>;
 
 
-  // ── Auto-fetch výsledků ───────────────────────────────
+  // ── Auto-fetch výsledků přes CORS proxy ─────────────
   const [fetchStatus,setFetchStatus]=useState('');
+  const TEAM_MAP_F={'Finland':'FIN','Germany':'GER','Canada':'CAN','Sweden':'SWE','United States':'USA','Switzerland':'SUI','Czech Republic':'CZE','Czechia':'CZE','Denmark':'DEN','Austria':'AUT','Great Britain':'GBR','Latvia':'LAT','Hungary':'HUN','Slovakia':'SVK','Norway':'NOR','Slovenia':'SLO','Italy':'ITA'};
+  function mapT(n){if(!n)return null;if(TEAM_MAP_F[n])return TEAM_MAP_F[n];for(const[k,v]of Object.entries(TEAM_MAP_F)){if(n.toLowerCase().includes(k.toLowerCase()))return v;}return n.slice(0,3).toUpperCase();}
   const fetchScores=useCallback(async(manual=false)=>{
-    if(manual)setFetchStatus('⏳ Načítám…');
+    if(manual)setFetchStatus('⏳ Načítám výsledky…');
     try{
       const today=new Date().toISOString().slice(0,10);
-      const res=await fetch('/api/scores?day='+today);
-      if(!res.ok)return;
-      const data=await res.json();
-      (data.events||[]).forEach(e=>{
-        if(e.scoreH!=null&&e.scoreA!=null&&e.status==='done'&&e.teamA&&e.teamB)
-          db?.ref('match_results/'+e.key).set({h:e.scoreH,a:e.scoreA});
+      const apiUrl='https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d='+today+'&s=Ice_Hockey';
+      const proxyUrl='https://api.allorigins.win/get?url='+encodeURIComponent(apiUrl);
+      const res=await fetch(proxyUrl,{signal:AbortSignal.timeout(10000)});
+      if(!res.ok)throw new Error('proxy '+res.status);
+      const wrapper=await res.json();
+      const data=JSON.parse(wrapper.contents||'{}');
+      const events=(data.events||[]).filter(e=>{const l=(e.strLeague||'').toLowerCase();return l.includes('iihf')||l.includes('world championship');});
+      let n=0;
+      events.forEach(e=>{
+        const tA=mapT(e.strHomeTeam),tB=mapT(e.strAwayTeam);
+        if(tA&&tB&&e.intHomeScore!=null&&e.intAwayScore!=null&&e.strStatus==='Match Finished'){
+          db?.ref('match_results/'+today+'_'+tA+'_'+tB).set({h:Number(e.intHomeScore),a:Number(e.intAwayScore)});
+          n++;
+        }
       });
-      if(manual)setFetchStatus('✅ Hotovo');
-      setTimeout(()=>setFetchStatus(''),3000);
-    }catch(_){}
+      if(manual)setFetchStatus(n>0?'✅ '+n+' výsledků aktualizováno':'⚠️ Žádné nové výsledky');
+      setTimeout(()=>setFetchStatus(''),4000);
+    }catch(err){if(manual)setFetchStatus('❌ '+err.message);setTimeout(()=>setFetchStatus(''),5000);}
   },[]);
   useEffect(()=>{
     if(!ready)return;
-    fetchScores();
-    const iv=setInterval(fetchScores,2*60*1000);
-    return()=>clearInterval(iv);
+    const t=setTimeout(()=>fetchScores(),3000);
+    const iv=setInterval(()=>fetchScores(),3*60*1000);
+    return()=>{clearTimeout(t);clearInterval(iv);};
   },[ready]);
 
   const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🏒','Sestavy'],['stats','👕','Statistiky'],['charts','📈','Grafy'],['results','⚽','Výsledky'],['history','📋','Historie'],['manage','⚙️','Správa']];
