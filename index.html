@@ -1482,6 +1482,47 @@ function App(){
 
 
 
+  // ── Auto-fetch výsledků (TheSportsDB přes CORS proxy) ──
+  const [autoMsg,setAutoMsg]=useState('');
+  useEffect(()=>{
+    if(!ready||!db)return;
+    const TMAP={'Finland':'FIN','Germany':'GER','Canada':'CAN','Sweden':'SWE',
+      'United States':'USA','Switzerland':'SUI','Czech Republic':'CZE','Czechia':'CZE',
+      'Denmark':'DEN','Austria':'AUT','Great Britain':'GBR','Latvia':'LAT',
+      'Hungary':'HUN','Slovakia':'SVK','Norway':'NOR','Slovenia':'SLO','Italy':'ITA'};
+    function tm(n){
+      if(!n)return null;
+      if(TMAP[n])return TMAP[n];
+      for(const k of Object.keys(TMAP))if(n.toLowerCase().includes(k.toLowerCase()))return TMAP[k];
+      return n.slice(0,3).toUpperCase();
+    }
+    async function fetchToday(){
+      try{
+        const day=new Date().toISOString().slice(0,10);
+        const url='https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d='+day+'&s=Ice_Hockey';
+        const r=await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(url));
+        if(!r.ok)return;
+        const w=await r.json();
+        const data=JSON.parse(w.contents||'{}');
+        let n=0;
+        (data.events||[])
+          .filter(e=>{const l=(e.strLeague||'').toLowerCase();return l.includes('iihf')||l.includes('world championship');})
+          .forEach(e=>{
+            const tA=tm(e.strHomeTeam),tB=tm(e.strAwayTeam);
+            if(tA&&tB&&e.intHomeScore!=null&&e.strStatus==='Match Finished'){
+              db.ref('match_results/'+day+'_'+tA+'_'+tB).set({h:+e.intHomeScore,a:+e.intAwayScore});
+              n++;
+            }
+          });
+        if(n>0)setAutoMsg('✅ '+n);
+        setTimeout(()=>setAutoMsg(''),5000);
+      }catch(_){}
+    }
+    fetchToday();
+    const iv=setInterval(fetchToday,3*60*1000);
+    return()=>clearInterval(iv);
+  },[ready]);
+
   const TABS=[['leaderboard','🏆','Pořadí'],['table','📊','Tabulka'],['sestavy','🏒','Sestavy'],['stats','👕','Statistiky'],['charts','📈','Grafy'],['results','⚽','Výsledky'],['history','📋','Historie'],['manage','⚙️','Správa']];
   const openDisputeCount=Object.values(disputes).reduce((s,cell)=>s+Object.values(cell).filter(d=>!d.resolved).length,0);
 
@@ -1522,7 +1563,7 @@ function App(){
           ))}
         </div>
       </nav>
-      {msg&&<Toast msg={msg} done={()=>setMsg(null)}/>}
+      {msg&&<Toast msg={msg} done={()=>setMsg(null)}/> }{autoMsg&&<div style={{position:'fixed',top:8,right:8,zIndex:200,background:'rgba(5,150,105,.9)',color:'#fff',borderRadius:20,padding:'4px 12px',fontSize:11,fontWeight:700}}>{autoMsg}</div>}
     </div>
   );
 }
