@@ -2,12 +2,51 @@ name: Auto-update hockey scores
 
 on:
   schedule:
-    - cron: '*/5 10-23 * 5 *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch & update scores
-        run: curl -s "https://fantasy-hokej-2026.vercel.app/api/update" || true
+      - name: Fetch SofaScore and save to Firebase
+        run: |
+          node -e "
+          const FB='https://fantasy-ms-hokej-2026-default-rtdb.europe-west1.firebasedatabase.app';
+          const TMAP={'Finland':'FIN','Germany':'GER','Canada':'CAN','Sweden':'SWE','United States':'USA','Switzerland':'SUI','Czech Republic':'CZE','Czechia':'CZE','Denmark':'DEN','Austria':'AUT','Great Britain':'GBR','Latvia':'LAT','Hungary':'HUN','Slovakia':'SVK','Norway':'NOR','Slovenia':'SLO','Italy':'ITA'};
+          const MS=new Set(['FIN_GER','SWE_CAN','USA_SUI','DEN_CZE','GBR_AUT','SVK_NOR','HUN_FIN','CAN_ITA','SUI_LAT','SLO_CZE','GBR_USA','ITA_SVK','AUT_HUN','SWE_DEN','GER_LAT','NOR_SLO','FIN_USA','CAN_DEN','GER_SUI','CZE_SWE','LAT_AUT','ITA_NOR','HUN_GBR','SLO_SVK']);
+          function mt(n){if(!n)return null;const t=n.trim();if(TMAP[t])return TMAP[t];for(const[k,v]of Object.entries(TMAP))if(t.toLowerCase().includes(k.toLowerCase()))return v;return null;}
+          (async()=>{
+            const day=new Date().toISOString().slice(0,10);
+            console.log('Date:',day);
+            try{
+              const r=await fetch('https://api.sofascore.com/api/v1/sport/ice-hockey/scheduled-events/'+day,{
+                headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/124.0','Accept':'application/json','Referer':'https://www.sofascore.com/'}
+              });
+              console.log('SofaScore:',r.status);
+              if(!r.ok){console.log('FAIL');return;}
+              const d=await r.json();
+              const evs=d.events||[];
+              console.log('Total events:',evs.length);
+              let saved=0;
+              for(const e of evs){
+                const tH=mt(e.homeTeam?.name),tA=mt(e.awayTeam?.name);
+                if(!tH||!tA)continue;
+                const sh=e.homeScore?.current??0,sa=e.awayScore?.current??0;
+                const done=e.status?.type==='finished';
+                const live=e.status?.type==='inprogress';
+                if(!done&&!live)continue;
+                if(sh+sa===0&&!done)continue;
+                const k1=tH+'_'+tA,k2=tA+'_'+tH;
+                let k,h,a;
+                if(MS.has(k1)){k=k1;h=sh;a=sa;}
+                else if(MS.has(k2)){k=k2;h=sa;a=sh;}
+                else continue;
+                await fetch(FB+'/match_results/'+day+'_'+k+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({h,a})});
+                console.log('Saved:',day+'_'+k,h+':'+a,done?'(done)':'(live)');
+                saved++;
+              }
+              console.log('TOTAL SAVED:',saved);
+            }catch(e){console.log('ERROR:',e.message);}
+          })();
+          "
