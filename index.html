@@ -81,6 +81,17 @@ function getResult(utcISO, teamA, teamB, fbResults){
   const key=d+'_'+teamA+'_'+teamB;
   return fbResults?.[key] || RESULTS_DB[key] || null;
 }
+
+// IIHF code → ISO alpha-2 pro flag CDN
+const COUNTRY_ISO={FIN:'fi',GER:'de',CAN:'ca',SWE:'se',USA:'us',SUI:'ch',CZE:'cz',DEN:'dk',AUT:'at',GBR:'gb',LAT:'lv',HUN:'hu',SVK:'sk',NOR:'no',SLO:'si',ITA:'it'};
+function Flag({code,size,style}){
+  const iso=COUNTRY_ISO[code];
+  const s=size||28;
+  if(!iso)return<span style={{fontSize:s*.7,lineHeight:1}}>🌍</span>;
+  return<img src={'https://flagcdn.com/w40/'+iso+'.png'} width={s} height={Math.round(s*.67)}
+    style={{borderRadius:3,objectFit:'cover',border:'1px solid rgba(255,255,255,.15)',display:'block',...(style||{})}}
+    onError={e=>{e.target.style.display='none';}}/>;
+}
 const GAME_DURATION_MS=3*60*60*1000; // ~3 hours
 function matchStatus(utcISO){const now=Date.now();const t=new Date(utcISO).getTime();if(now<t)return'upcoming';if(now<t+GAME_DURATION_MS)return'live';return'done';}
 function matchStartedFor(country){const now=Date.now();return MS.some(([t,a,b])=>(a===country||b===country)&&now>=new Date(t).getTime());}
@@ -194,13 +205,19 @@ function MatchDayStrip({selectedDate,matchResults,onMatchResult,isAdmin}){
               {isLive&&<div style={{flexShrink:0,background:'#22c55e',color:'#fff',borderRadius:6,padding:'2px 6px',fontSize:8,fontWeight:900,animation:'blink 1s ease-in-out infinite'}}>LIVE</div>}
               {!isLive&&<div style={{flexShrink:0,fontSize:10,fontWeight:700,color:isDone?C.muted:C.cyan,minWidth:34}}>{cestTime}</div>}
               <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
-                <span style={{fontSize:16}}>{fa}</span>
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:1,flexShrink:0}}>
+                  <Flag code={a} size={22}/>
+                  <span style={{fontSize:7,fontWeight:900,color:C.muted}}>{a}</span>
+                </div>
                 <span style={{fontSize:11,fontWeight:800,color:isDone?C.text:C.text,whiteSpace:'nowrap'}}>{na}</span>
                 {result
                   ?<span style={{fontSize:15,fontWeight:900,color:C.cyan,padding:'0 4px',background:'rgba(56,189,248,.1)',borderRadius:6}}>{result.h} : {result.a}</span>
                   :<span style={{fontSize:10,color:C.faint,padding:'0 4px'}}>vs</span>}
                 <span style={{fontSize:11,fontWeight:800,color:isDone?C.text:C.text,whiteSpace:'nowrap'}}>{nb}</span>
-                <span style={{fontSize:16}}>{fb_}</span>
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:1,flexShrink:0}}>
+                  <Flag code={b} size={22}/>
+                  <span style={{fontSize:7,fontWeight:900,color:C.muted}}>{b}</span>
+                </div>
               </div>
               {isDone&&!result&&isAdmin&&!isEditing&&<button onClick={()=>{setEditKey(key);setEditH('');setEditA('');}} style={{flexShrink:0,background:'rgba(56,189,248,.1)',border:'1px solid rgba(56,189,248,.3)',borderRadius:6,color:C.cyan,fontSize:9,fontWeight:700,padding:'2px 6px',cursor:'pointer',fontFamily:'inherit'}}>+ skóre</button>}
               {isEditing&&<div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0}}>
@@ -394,7 +411,7 @@ function SquadBuilder({myName,rounds,squadBuilds,onSquadSave,players,matchResult
                 const id=country+'_'+name;
                 return(
                   <div key={id} onClick={()=>setSlot(pickSlot,{id,name,country,pos})} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 8px',borderRadius:10,cursor:'pointer',borderBottom:`1px solid ${C.border}`}}>
-                    <span style={{fontSize:14}}>{COUNTRIES[country]?.f} {country}</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}><Flag code={country} size={18}/><span style={{fontSize:10,fontWeight:800,color:C.cyan}}>{country}</span></span>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:800,fontSize:14}}>{name}</div>
                       <div style={{fontSize:10,color:C.muted}}>{COUNTRIES[country]?.n} · {pos==='B'?'Brankář':pos==='O'?'Obránce':'Útočník'}</div>
@@ -693,7 +710,7 @@ function pidSafe(id){return id.replace(/[^a-zA-Z0-9_ÁáČčĎďÉéĚěÍíŇň
 // /user_stats/{userKey}: { players:[{name,country,pos,rounds,goals,assists,points}], updatedAt, updatedBy }
 /* ── STATISTICS ─────────────────────────────────────── */
 // /user_stats/{userKey}/{roundKey}: { players:[{name,country,pos,goals,assists,points}], updatedAt, updatedBy }
-function Statistics({players,rounds,userStats,onUserStats,myName}){
+function Statistics({players,rounds,userStats,onUserStats,myName,squadBuilds,matchDetails}){
   const IMPORTER='MatjNg';
   const isImporter=myName===IMPORTER;
   const [selUser,setSelUser]=useState(players[0]||'');
@@ -704,7 +721,69 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
   const [apiKey,setApiKey]=useState(()=>localStorage.getItem('hk26_gemini_key')||'');
   const [confirmEdit,setConfirmEdit]=useState(null);
   const [selRound,setSelRound]=useState('');
+  const [calcMsg,setCalcMsg]=useState('');
+  const [calculating,setCalculating]=useState(false);
   const fileRef=useRef();
+
+  // Map round key → game day
+  const dayList2=useMemo(()=>{const d={};MS.forEach(([t])=>{const dt=t.slice(0,10);d[dt]=true;});return Object.keys(d).sort();},[]);
+  function getRoundDay2(rk){const num=parseInt(rk.replace(/\D/g,''))-1;return(num>=0&&num<dayList2.length)?dayList2[num]:null;}
+
+  async function autoCalc(roundKey){
+    if(!roundKey){setCalcMsg('❌ Vyber kolo');return;}
+    setCalculating(true);setCalcMsg('⏳ Načítám data...');
+    try{
+      const roundDay=getRoundDay2(roundKey);
+      if(!roundDay)throw new Error('Kolo '+roundKey+' nemá přiřazený den');
+      const dayMatches=MS.filter(([t])=>t.startsWith(roundDay));
+      if(!dayMatches.length)throw new Error('Žádné zápasy pro den '+roundDay);
+
+      // Per-country stats from Firebase match_details OR SEED_DETAILS fallback
+      const cs={};
+      const missing=[];
+      dayMatches.forEach(([t,teamA,teamB])=>{
+        const key=roundDay+'_'+teamA+'_'+teamB;
+        const det=(matchDetails&&matchDetails[key])||SEED_DETAILS[key];
+        if(!det){missing.push(COUNTRIES[teamA]?.n+' vs '+COUNTRIES[teamB]?.n);return;}
+        [teamA,teamB].forEach(tm=>{if(!cs[tm])cs[tm]={sc:{},as:{},gc:0,hasData:true};});
+        (det.goals||[]).forEach(g=>{
+          const opp=g.team===teamA?teamB:teamA;
+          if(g.scorer)cs[g.team].sc[g.scorer]=(cs[g.team].sc[g.scorer]||0)+1;
+          [g.a1,g.a2].filter(Boolean).forEach(a=>{cs[g.team].as[a]=(cs[g.team].as[a]||0)+1;});
+          if(cs[opp])cs[opp].gc++;
+        });
+      });
+      if(missing.length)setCalcMsg('⚠️ Chybí data: '+missing.join(', '));
+
+      // Compute for every group member
+      const allRes={};let n=0;
+      players.forEach(member=>{
+        const squad=squadBuilds[roundKey]?.[fk(member)];
+        if(!squad)return;
+        const stats=[];const seen=new Set();
+        [...SLOTS,...SUB_SLOTS].forEach(slot=>{
+          const pl=squad[slot];
+          if(!pl||typeof pl!=='object'||seen.has(pl.id))return;
+          seen.add(pl.id);
+          const c=cs[pl.country]||{sc:{},as:{},gc:0,hasData:false};
+          const goals=c.sc[pl.name]||0;
+          const assists=c.as[pl.name]||0;
+          // Čisté konto: slot G = základní brankář, tým nepustil gól, data existují
+          const shutout=(slot==='G')&&c.hasData&&(c.gc===0);
+          stats.push({name:pl.name,country:pl.country,pos:pl.pos,goals,assists,points:goals+assists,fantasy_pts:0,shutout});
+        });
+        if(stats.length){allRes[fk(member)]={players:stats,updatedAt:Date.now(),updatedBy:myName+' (auto)'};n++;}
+      });
+      if(!n)throw new Error('Žádný hráč nemá sestavu pro toto kolo');
+
+      setCalcMsg('💾 Ukládám pro '+n+' hráčů...');
+      for(const[uk,data]of Object.entries(allRes))await onUserStats(uk,roundKey,data);
+
+      const bodujici=Object.values(allRes).flatMap(d=>d.players).filter(p=>p.points>0||p.shutout);
+      setCalcMsg('✅ Hotovo! '+n+' hráčů · kolo '+roundKey+' · '+roundDay+(bodujici.length?' · '+bodujici.slice(0,6).map(p=>p.name+(p.shutout?' 🥅':'')).join(', '):''));
+    }catch(ex){setCalcMsg('❌ '+ex.message);}
+    finally{setCalculating(false);}
+  }
 
   useEffect(()=>{if(players.length&&!selUser)setSelUser(players[0]);},[players]);
 
@@ -865,18 +944,23 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
     <div>
       {/* IMPORTER */}
       {isImporter&&(
-        <div style={{...S.card,marginBottom:12,border:'1px solid rgba(74,222,128,.25)',background:'rgba(74,222,128,.04)'}}>
-          <span style={{...S.lbl,color:C.green}}>🤖 AI IMPORT — GEMINI (ZDARMA)</span>
+        <div style={{...S.card,marginBottom:12,border:'1px solid rgba(56,189,248,.25)',background:'rgba(56,189,248,.04)'}}>
+          <span style={{...S.lbl,color:C.cyan}}>📊 IMPORT STATISTIK — MatjNg</span>
 
-          {/* API key */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
-              Google Gemini API klíč <span style={{color:C.green,fontSize:9}}>(zdarma · aistudio.google.com → Get API key)</span>
+          {/* AUTO CALC — FREE */}
+          <div style={{background:'rgba(74,222,128,.06)',border:'1px solid rgba(74,222,128,.25)',borderRadius:10,padding:'10px 12px',marginBottom:12}}>
+            <div style={{fontSize:11,color:C.green,fontWeight:900,marginBottom:4}}>⚡ AUTO-VÝPOČET — ZDARMA</div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Vezme data ze záložky Výsledky → automaticky spočítá góly, asistence a čistá konta. Nejdřív musí být v záložce Výsledky zadány detaily zápasů.</div>
+            <div style={{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}}>
+              {rounds.map(r=>{const rk_=fk(r);return(
+                <button key={r} onClick={()=>setSelRound(selRound===rk_?'':rk_)} style={{padding:'5px 12px',borderRadius:16,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700,...S.btn(selRound===rk_,'#059669')}}>{r}</button>
+              );})}
             </div>
-            <div style={{display:'flex',gap:6,alignItems:'center'}}>
-              <input type="password" value={apiKey} onChange={e=>{setApiKey(e.target.value);localStorage.setItem('hk26_gemini_key',e.target.value);}} placeholder="AIza..." style={{...S.input,flex:1,fontSize:12}}/>
-              <span style={{fontSize:14,color:apiKey?C.green:C.faint}}>{apiKey?'✓':'✗'}</span>
-            </div>
+            <button onClick={()=>autoCalc(selRound)} disabled={calculating||!selRound}
+              style={{width:'100%',padding:'10px',border:'none',borderRadius:10,background:selRound?'linear-gradient(135deg,#059669,#10b981)':'rgba(255,255,255,.06)',color:selRound?'#fff':C.faint,fontWeight:900,fontSize:13,cursor:selRound&&!calculating?'pointer':'not-allowed',fontFamily:'inherit'}}>
+              {calculating?'Počítám…':'⚡ Vypočítat pro všechny hráče'}
+            </button>
+            {calcMsg&&<div style={{marginTop:6,fontSize:11,color:calcMsg.startsWith('✅')?C.green:calcMsg.startsWith('❌')?C.red:C.muted}}>{calcMsg}</div>}
           </div>
 
           {/* User selector */}
@@ -1031,9 +1115,6 @@ function Statistics({players,rounds,userStats,onUserStats,myName}){
     </div>
   );
 }
-/* ── RESULTS ──────────────────────────────────────────── */
-// goal: {min,period,team,scorer,a1,a2,type}  type='' normal, 'PP'=přesilovka, 'SH'=oslabení, 'PS'=trestné střílení
-// penalty: {min,period,team,player,min_val,type}
 const SEED_DETAILS={
   "2026-05-15_SWE_CAN":{h:5,a:3,
     goals:[
@@ -1086,6 +1167,10 @@ const SEED_DETAILS={
       {min:"30:22",period:2,team:"CZE",player:"Polák M.",min_val:2,type:"Faul"}
     ]}
 };
+
+/* ── RESULTS ──────────────────────────────────────────── */
+// goal: {min,period,team,scorer,a1,a2,type}  type='' normal, 'PP'=přesilovka, 'SH'=oslabení, 'PS'=trestné střílení
+// penalty: {min,period,team,player,min_val,type}
 
 function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
   const dayMap=useMemo(()=>{const d={};MS.forEach(([t,a,b])=>{const dt=t.slice(0,10);if(!d[dt])d[dt]=[];d[dt].push([t,a,b]);});return d;},[]);
@@ -1184,7 +1269,10 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
                 {/* Teams + score */}
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
                   <div style={{flex:1,display:'flex',alignItems:'center',gap:8}}>
-                    <div style={{width:44,height:44,borderRadius:10,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,flexShrink:0}}>{fa}</div>
+                    <div style={{width:44,height:44,borderRadius:10,background:'rgba(255,255,255,.12)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,flexShrink:0}}>
+                      <Flag code={teamA} size={28}/>
+                      <span style={{fontSize:8,fontWeight:900,color:'#fff',letterSpacing:.5}}>{teamA}</span>
+                    </div>
                     <div style={{fontWeight:900,fontSize:14,color:score&&score.h>score.a?'#fff':score?C.muted:C.text,lineHeight:1.2}}>{na}</div>
                   </div>
                   <div style={{textAlign:'center',minWidth:90}}>
@@ -1196,7 +1284,10 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
                   </div>
                   <div style={{flex:1,display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end'}}>
                     <div style={{fontWeight:900,fontSize:14,color:score&&score.a>score.h?'#fff':score?C.muted:C.text,lineHeight:1.2,textAlign:'right'}}>{nb}</div>
-                    <div style={{width:44,height:44,borderRadius:10,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,flexShrink:0}}>{fb}</div>
+                    <div style={{width:44,height:44,borderRadius:10,background:'rgba(255,255,255,.12)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,flexShrink:0}}>
+                      <Flag code={teamB} size={28}/>
+                      <span style={{fontSize:8,fontWeight:900,color:'#fff',letterSpacing:.5}}>{teamB}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1480,7 +1571,7 @@ function App(){
         {tab==='leaderboard'&&<Leaderboard players={players} rounds={rounds} scores={scores} settings={settings}/>}
         {tab==='table'&&<Table players={players} rounds={rounds} scores={scores} onScore={(k,v)=>handleScore(k,v,myName)} reactions={reactions} onReaction={handleReaction} comments={comments} onComment={handleComment} disputes={disputes} onDispute={(k,c)=>handleDispute(k,c,myName)} onResolve={(k,id)=>handleResolveDispute(k,id,myName)} myName={myName}/>}
         {tab==='sestavy'&&<SquadBuilder myName={myName} rounds={rounds} squadBuilds={squadBuilds} onSquadSave={handleSquadSave} players={players} matchResults={matchResults} isAdmin={ADMINS.includes(myName)} onMatchResult={(k,v)=>db?.ref('match_results/'+k).set(v)}/>}
-        {tab==='stats'&&<Statistics players={players} rounds={rounds} userStats={userStats} onUserStats={handleUserStats} myName={myName}/>}
+        {tab==='stats'&&<Statistics players={players} rounds={rounds} userStats={userStats} onUserStats={handleUserStats} myName={myName} squadBuilds={squadBuilds} matchDetails={matchDetails}/>}
         {tab==='charts'&&<Grafy players={players} rounds={rounds} scores={scores}/>}
         {tab==='results'&&<Results matchResults={matchResults} matchDetails={matchDetails} onMatchDetails={(k,v)=>db?.ref('match_details/'+k).set(v)} isAdmin={ADMINS.includes(myName)}/>}
         {tab==='history'&&<History activity={activity}/>}
