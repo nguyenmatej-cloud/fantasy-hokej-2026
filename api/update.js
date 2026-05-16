@@ -1,4 +1,4 @@
-// api/update.js — SofaScore bez filtru turnaje
+// api/update.js — s debug výstupem
 
 const FIREBASE='https://fantasy-ms-hokej-2026-default-rtdb.europe-west1.firebasedatabase.app';
 const TMAP={
@@ -10,15 +10,12 @@ const TMAP={
 const MS_KEYS=new Set(['FIN_GER','SWE_CAN','USA_SUI','DEN_CZE','GBR_AUT','SVK_NOR',
   'HUN_FIN','CAN_ITA','SUI_LAT','SLO_CZE','GBR_USA','ITA_SVK','AUT_HUN',
   'SWE_DEN','GER_LAT','NOR_SLO','FIN_USA','CAN_DEN','GER_SUI','CZE_SWE',
-  'LAT_AUT','ITA_NOR','HUN_GBR','SLO_SVK','CAN_SLO','GER_HUN','FIN_GBR',
-  'ITA_SWE','FIN_LAT','CAN_NOR','AUT_SUI','CZE_ITA','USA_GER','SWE_SLO',
-  'DEN_SVK','CZE_CAN','SUI_SWE','USA_SVK','FIN_DEN','CAN_CZE']);
-
+  'LAT_AUT','ITA_NOR','HUN_GBR','SLO_SVK']);
 function mt(n){
   if(!n)return null;const t=(n||'').trim();
   if(TMAP[t])return TMAP[t];
   for(const[k,v]of Object.entries(TMAP))if(t.toLowerCase().includes(k.toLowerCase()))return v;
-  return t.slice(0,3).toUpperCase();
+  return null; // strict — vrať null pokud team není známý
 }
 async function fbSet(p,d){
   await fetch(`${FIREBASE}/${p}.json`,{method:'PUT',
@@ -34,9 +31,8 @@ function findKey(tH,tA,sh,sa){
 module.exports=async function handler(req,res){
   res.setHeader('Access-Control-Allow-Origin','*');
   const day=req.query.day||new Date().toISOString().slice(0,10);
-  const out={day,saved:[],errors:[],source:'none'};
+  const out={day,saved:[],debug:{}};
 
-  // SofaScore — filtr jen podle týmů, ne turnaje
   try{
     const r=await fetch(
       `https://api.sofascore.com/api/v1/sport/ice-hockey/scheduled-events/${day}`,
@@ -46,30 +42,35 @@ module.exports=async function handler(req,res){
         'Referer':'https://www.sofascore.com/'
       }}
     );
-    if(!r.ok)throw new Error('HTTP '+r.status);
+    out.debug.status=r.status;
+    if(!r.ok){out.debug.error='HTTP '+r.status;return res.json(out);}
     const data=await r.json();
     const events=data.events||[];
-    out.total=events.length;
-    out.source='sofascore';
+    out.debug.totalEvents=events.length;
+    out.debug.iihfCandidates=[];
 
     for(const e of events){
-      const tH=mt(e.homeTeam?.name),tA=mt(e.awayTeam?.name);
+      const hn=e.homeTeam?.name,an=e.awayTeam?.name;
+      const tH=mt(hn),tA=mt(an);
       if(!tH||!tA)continue;
-      // Klíč musí být v naší MS schedule
-      const found=findKey(tH,tA,
-        e.homeScore?.current??0,
-        e.awayScore?.current??0);
+      // Zaznamenat všechny zápasy s našimi týmy
+      out.debug.iihfCandidates.push({
+        teams:`${hn}(${tH}) vs ${an}(${tA})`,
+        score:`${e.homeScore?.current}:${e.awayScore?.current}`,
+        status:e.status?.type,
+        tournament:e.tournament?.name||e.uniqueTournament?.name
+      });
+      
+      const found=findKey(tH,tA,e.homeScore?.current??0,e.awayScore?.current??0);
       if(!found)continue;
-
       const done=e.status?.type==='finished';
       const live=e.status?.type==='inprogress';
       if(!done&&!live)continue;
-      if(found.h+found.a===0&&!done)continue; // Nulové live skóre nemaž
-
+      if(found.h+found.a===0&&!done)continue;
       await fbSet(`match_results/${day}_${found.key}`,{h:found.h,a:found.a});
-      out.saved.push(`${day}_${found.key}: ${found.h}:${found.a} (${done?'✓':'live'})`);
+      out.saved.push(`${day}_${found.key}: ${found.h}:${found.a}`);
     }
-  }catch(e){out.errors.push('sofascore:'+e.message);}
+  }catch(e){out.debug.error=e.message;}
 
   return res.json(out);
 };
