@@ -79,9 +79,12 @@ const RESULTS_DB = {
 function getResult(utcISO, teamA, teamB, fbResults){
   const d=utcISO.slice(0,10);
   const key=d+'_'+teamA+'_'+teamB;
+  // Firebase first (agent updates this), then SEED_DETAILS, then old DB
+  const fb=fbResults?.[key];
+  if(fb&&(fb.h||0)+(fb.a||0)>0)return fb;
   const seed=SEED_DETAILS[key];
   if(seed)return{h:seed.h,a:seed.a};
-  return fbResults?.[key] || RESULTS_DB[key] || null;
+  return fbResults?.[key]||RESULTS_DB[key]||null;
 }
 
 // IIHF code → ISO alpha-2 pro flag CDN
