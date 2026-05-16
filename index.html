@@ -79,6 +79,8 @@ const RESULTS_DB = {
 function getResult(utcISO, teamA, teamB, fbResults){
   const d=utcISO.slice(0,10);
   const key=d+'_'+teamA+'_'+teamB;
+  const seed=SEED_DETAILS[key];
+  if(seed)return{h:seed.h,a:seed.a};
   return fbResults?.[key] || RESULTS_DB[key] || null;
 }
 
