@@ -210,11 +210,9 @@ function MatchDayStrip({selectedDate,matchResults,onMatchResult,isAdmin}){
       {Object.entries(timeGroups).sort().map(([timeUTC,games])=>{
         const h=parseInt(timeUTC.slice(0,2))+2;const cestTime=h+':'+timeUTC.slice(3,5);
         return games.map(([t,a,b])=>{
-          const st=matchStatus(t,key,matchResults,null);const isLive=st==='live';const isDone=st==='done';
-          const fa=COUNTRIES[a]?.f||'';const fb_=COUNTRIES[b]?.f||'';
-          const na=COUNTRIES[a]?.n||a;const nb=COUNTRIES[b]?.n||b;
-          const result=getResult(t,a,b,matchResults);
           const key=t.slice(0,10)+'_'+a+'_'+b;
+          const result=getResult(t,a,b,matchResults);
+          const st=matchStatus(t,key,matchResults,null);const isLive=st==='live';const isDone=st==='done';
           const isEditing=editKey===key;
           return(
             <div key={key} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',borderRadius:10,marginBottom:6,
