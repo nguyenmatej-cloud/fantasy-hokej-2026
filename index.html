@@ -643,10 +643,12 @@ function Table({players,rounds,scores,onScore,reactions,onReaction,comments,onCo
                 <th style={{padding:'8px 10px',textAlign:'center',fontSize:10,color:C.gold,fontWeight:700}}>∑</th>
               </tr></thead>
               <tbody>
-                {rows.map((t,ri)=>(
-                  <tr key={t.name} style={{borderTop:`1px solid ${C.border}`}}>
-                    <td style={{padding:'8px 10px',background:'rgba(13,24,41,.85)',position:'sticky',left:0,zIndex:1}}>
-                      <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:ri<3?16:12,color:[C.gold,C.silver,C.bronze][ri]||C.muted}}>{ri<3?MEDALS[ri]:ri+1}</span><span style={{fontWeight:800,fontSize:13,whiteSpace:'nowrap'}}>{t.name}</span></div>
+                {rows.map((t,ri)=>{
+                  const isLast=ri===rows.length-1&&rows.length>1;
+                  return(
+                  <tr key={t.name} style={{borderTop:`1px solid ${C.border}`,background:isLast?'rgba(239,68,68,.06)':'transparent'}}>
+                    <td style={{padding:'8px 10px',background:isLast?'rgba(60,13,13,.85)':'rgba(13,24,41,.85)',position:'sticky',left:0,zIndex:1}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:ri<3?16:12,color:isLast?C.red:([C.gold,C.silver,C.bronze][ri]||C.muted)}}>{isLast?'💀':ri<3?MEDALS[ri]:ri+1}</span><span style={{fontWeight:800,fontSize:13,whiteSpace:'nowrap',color:isLast?C.red:C.text}}>{t.name}</span>{isLast&&<span style={{fontSize:9,background:'rgba(239,68,68,.25)',color:C.red,borderRadius:6,padding:'2px 6px',fontWeight:900,letterSpacing:1}}>TREST</span>}</div>
                     </td>
                     {rounds.map(r=>{
                       const key=sk(t.name,r);const v=scores[key]??null;
@@ -687,9 +689,10 @@ function Table({players,rounds,scores,onScore,reactions,onReaction,comments,onCo
                         </td>
                       );
                     })}
-                    <td style={{padding:'9px 14px',textAlign:'center',fontWeight:900,fontSize:19,color:ri===0?C.gold:C.cyan}}>{t.total}</td>
+                    <td style={{padding:'9px 14px',textAlign:'center',fontWeight:900,fontSize:19,color:isLast?C.red:ri===0?C.gold:C.cyan}}>{t.total}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1200,13 +1203,29 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
             try{
               const TMAP2={'Finland':'FIN','Germany':'GER','Canada':'CAN','Sweden':'SWE','United States':'USA','Switzerland':'SUI','Czech Republic':'CZE','Czechia':'CZE','Denmark':'DEN','Austria':'AUT','Great Britain':'GBR','Latvia':'LAT','Hungary':'HUN','Slovakia':'SVK','Norway':'NOR','Slovenia':'SLO','Italy':'ITA'};
               const MS2=new Set(['FIN_GER','SWE_CAN','USA_SUI','DEN_CZE','GBR_AUT','SVK_NOR','HUN_FIN','CAN_ITA','SUI_LAT','SLO_CZE','GBR_USA','ITA_SVK','AUT_HUN','SWE_DEN','GER_LAT','NOR_SLO','FIN_USA','CAN_DEN','GER_SUI','CZE_SWE','LAT_AUT','ITA_NOR','HUN_GBR','SLO_SVK']);
-              function mt2(n){if(!n)return null;const t=n.trim();if(TMAP2[t])return TMAP2[t];for(const[k,v]of Object.entries(TMAP2))if(t.toLowerCase().includes(k.toLowerCase()))return v;return t.slice(0,3).toUpperCase();}
+              function mt2(n){if(!n)return null;const t=n.trim();if(TMAP2[t])return TMAP2[t];for(const[k,v]of Object.entries(TMAP2))if(t.toLowerCase().includes(k.toLowerCase()))return v;return null;}
+              
+              // Postupně zkus víc proxy
               const ssUrl='https://api.sofascore.com/api/v1/sport/ice-hockey/scheduled-events/'+selDay;
-              const r=await fetch('https://corsproxy.io/?'+encodeURIComponent(ssUrl));
-              if(!r.ok)throw new Error('proxy '+r.status);
-              const data=await r.json();
+              const proxies=[
+                u=>'https://corsproxy.io/?'+encodeURIComponent(u),
+                u=>'https://api.codetabs.com/v1/proxy?quest='+u,
+                u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u),
+                u=>'https://cors.lol/?url='+encodeURIComponent(u)
+              ];
+              let data=null,lastErr='';
+              for(const p of proxies){
+                try{
+                  const r=await fetch(p(ssUrl));
+                  if(!r.ok){lastErr='HTTP '+r.status;continue;}
+                  data=await r.json();
+                  if(data&&data.events)break;
+                }catch(e){lastErr=e.message;}
+              }
+              if(!data||!data.events)throw new Error('všechny proxy selhaly: '+lastErr);
+              
               let n=0;
-              (data.events||[]).forEach(e=>{
+              data.events.forEach(e=>{
                 const tH=mt2(e.homeTeam?.name),tA=mt2(e.awayTeam?.name);
                 if(!tH||!tA)return;
                 const sh=e.homeScore?.current??0,sa=e.awayScore?.current??0;
@@ -1222,7 +1241,7 @@ function Results({matchResults,matchDetails,onMatchDetails,isAdmin}){
               });
               setFetchMsg(n>0?'✅ '+n+' výsledků':'⚠️ Žádná data');
             }catch(err){setFetchMsg('❌ '+err.message);}
-            setTimeout(()=>setFetchMsg(''),4000);
+            setTimeout(()=>setFetchMsg(''),6000);
           }} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 12px',border:`1px solid ${C.border}`,borderRadius:20,background:'rgba(255,255,255,.05)',color:C.cyan,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700}}>
             🔄 Aktualizovat
           </button>
